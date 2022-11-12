@@ -2,6 +2,8 @@
 Microsoft Visual Studio Solution File, Format Version 12.00
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "JobScheduler", "JobScheduler\JobScheduler.csproj", "{96AB1B0E-2501-4972-BECA-690878DB5852}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "JobScheduler.Test", "JobScheduler.Test\JobScheduler.Test.csproj", "{22CA05F3-3921-4DEE-BC02-392BBC7F885C}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -12,5 +14,9 @@ Global
 		{96AB1B0E-2501-4972-BECA-690878DB5852}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{96AB1B0E-2501-4972-BECA-690878DB5852}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{96AB1B0E-2501-4972-BECA-690878DB5852}.Release|Any CPU.Build.0 = Release|Any CPU
+		{22CA05F3-3921-4DEE-BC02-392BBC7F885C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{22CA05F3-3921-4DEE-BC02-392BBC7F885C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{22CA05F3-3921-4DEE-BC02-392BBC7F885C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{22CA05F3-3921-4DEE-BC02-392BBC7F885C}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

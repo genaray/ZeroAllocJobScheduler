@@ -92,6 +92,9 @@ public class JobScheduler : IDisposable{
 
                 jobMeta.Job.Execute();
                 jobMeta.JobHandle.Notify();
+                
+                if(jobMeta.JobHandle._poolOnComplete)
+                    ManualResetEventPool.Return(jobMeta.JobHandle._event);
             }
         }
     }
@@ -100,12 +103,13 @@ public class JobScheduler : IDisposable{
     /// Schedules a job. Is only queued up, not being processed. 
     /// </summary>
     /// <param name="job">The job to process</param>
+    /// <param name="poolOnComplete">Is set, the worker thread will return the handle to the pool after on. The user should not call Return oder Complete on it !</param>
     /// <returns>Its <see cref="JobHandle"/>.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public JobHandle Schedule(IJob job) {
+    public JobHandle Schedule(IJob job, bool poolOnComplete = false) {
 
-        var handle = new JobHandle(ManualResetEventPool.Get());
-        handle.Event.Reset();
+        var handle = new JobHandle(ManualResetEventPool.Get(), poolOnComplete);
+        handle._event.Reset();
 
         var jobMeta = new JobMeta(in handle, job);
         QueuedJobs.Enqueue(jobMeta);

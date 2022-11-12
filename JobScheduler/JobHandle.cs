@@ -10,15 +10,27 @@ namespace JobScheduler;
 /// </summary>
 public readonly struct JobHandle {
 
-    internal readonly ManualResetEvent Event;
-    public JobHandle(ManualResetEvent @event) { Event = @event; }
+    /// <summary>
+    /// The ManualResetEvent - Waithandle.
+    /// </summary>
+    internal readonly ManualResetEvent _event;
+    
+    /// <summary>
+    /// A bool indicating whether the thread itself or tue user returns the handle to the pool. 
+    /// </summary>
+    internal readonly bool _poolOnComplete;
+
+    public JobHandle(ManualResetEvent @event, bool @poolOnComplete) {
+        _event = @event;
+        _poolOnComplete = @poolOnComplete;
+    }
 
     /// <summary>
     /// Notifies <see cref="JobHandle"/>, sets it signal.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal void Notify() {
-        Event.Set();
+        _event.Set();
     }
     
     /// <summary>
@@ -26,15 +38,19 @@ public readonly struct JobHandle {
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Complete() {
-        Event.WaitOne();
+        
+        if (_poolOnComplete) throw new Exception("PoolOnComplete was set on JobHandle, therefore it returns automatically to the pool and you can not wait for its completion anymore since its handle might have been already reused.");
+        _event.WaitOne();
     }
-    
+
     /// <summary>
     /// Returns/Pools the <see cref="JobHandle"/>.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Return() {
-        if(Event != null) JobScheduler.ManualResetEventPool.Return(Event);
+
+        if (_poolOnComplete) throw new Exception("PoolOnComplete was set on JobHandle, therefore it returns automatically to the pool. Do not call Return on such a handle !");
+        if(_event != null) JobScheduler.ManualResetEventPool.Return(_event);
     }
 
     /// <summary>

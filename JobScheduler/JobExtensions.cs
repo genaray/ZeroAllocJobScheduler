@@ -15,9 +15,9 @@ public static class IJobExtensions {
     /// <typeparam name="T">The type</typeparam>
     /// <returns>The <see cref="JobHandle"/> used to wait for the job.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static JobHandle Schedule<T>(this T jobData) where T : IJob {
+    public static JobHandle Schedule<T>(this T jobData, bool poolOnComplete = false) where T : IJob {
         
-        var job = JobScheduler.Instance.Schedule(jobData);
+        var job = JobScheduler.Instance.Schedule(jobData, poolOnComplete);
         return job;
     }
 }
