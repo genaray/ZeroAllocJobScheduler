@@ -18,22 +18,26 @@ var scheduler = new JobScheduler("MyThreads");
 
 // You need to pool/create jobs still by yourself
 var firsJob = new HeavyCalculation();    
-var secondJob = new HeavyCalculation();
 
-// Scheduling jobs, not being executed instantly. They wait for a flush
-var firstHandle = firsJob.Schedule();   
-var secondHandle = secondJob.Schedule();
+var firstHandle = firsJob.Schedule(false); // Schedules job locally, false = user needs to wait for complete and return to pool
+scheduler.Flush();  // Flushes all scheduled jobs to the worker threads                      
 
-// Flushes all scheduled jobs to the worker threads
-scheduler.Flush();                       
+firstHandle.Complete(); // Blocks till job was completed            
+firstHandle.Return();   // Returns job to pool
 
-// Blocks till job/handle completed
-firstHandle.Complete();                 
-secondHandle.Complete();
+// Dispose
+scheduler.Dispose();                
+```
 
-// Pool internal handles
-firstHandle.Return();                 
-secondHandle.Return();
+# Fire and forget sample
+
+```csharp
+// Automatically chooses threads based on your processor count
+var scheduler = new JobScheduler("MyThreads"); 
+
+// You need to pool/create jobs still by yourself
+var firsJob = new HeavyCalculation();    
+var firstHandle = firsJob.Schedule(true); // Schedules job locally, true = user cant wait for it or return, its fire & forget
 
 // Dispose
 scheduler.Dispose();                
