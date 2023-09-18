@@ -43,6 +43,7 @@ var scheduler = new JobScheduler("MyThreads");
 // You need to pool/create jobs still by yourself
 var firsJob = new HeavyCalculation();    
 var firstHandle = firsJob.Schedule(true); // Schedules job locally, true = user cant wait for it or return, its fire & forget
+scheduler.Flush();                        // Flushes the job to the scheduler for being processed.
 
 // Dispose
 scheduler.Dispose();                
