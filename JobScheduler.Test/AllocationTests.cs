@@ -1,7 +1,6 @@
 ﻿using JobScheduler.Test.Utils;
 using JobScheduler.Test.Utils.CustomConstraints;
 using System.Diagnostics.CodeAnalysis;
-using System.Reflection.Metadata;
 
 namespace JobScheduler.Test;
 
@@ -9,7 +8,7 @@ namespace JobScheduler.Test;
 [TestFixture]
 [SuppressMessage("Assertion", "NUnit2045:Use Assert.Multiple",
     Justification = "Multiple asserts are not appropriate as later code")]
-internal class AllocationTests : AllocationTestFixture
+internal class AllocationTests : SchedulerTestFixture
 {
     // Note: in the tests do NOT use job.Schedule(); it is not threadsafe since it uses the singleton.
     // Use Scheduler.Schedule() from the fixture.
