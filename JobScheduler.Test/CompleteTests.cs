@@ -1,39 +1,10 @@
 using JobScheduler.Extensions;
-using System.Reflection.Metadata;
+using JobScheduler.Test.Utils;
 
 namespace JobScheduler.Test;
 
-public class SleepJob : IJob
+internal class CompleteTests : SchedulerTestFixture
 {
-    public SleepJob(int time)
-    {
-        _time = time;
-    }
-    private readonly int _time;
-    public int Result { get; private set; }
-    public void Execute()
-    {
-        Thread.Sleep(_time);
-        Result = 1;
-    }
-}
-
-public class CompleteTests
-{
-    private JobScheduler _jobScheduler = null!;
-
-    [SetUp]
-    public void Setup()
-    {
-        _jobScheduler = new JobScheduler("Test");
-    }
-
-    [TearDown]
-    public void Clean()
-    {
-        _jobScheduler.Dispose();
-    }
-
     [Test]
     public void OneJobCompletes()
     {
@@ -42,7 +13,7 @@ public class CompleteTests
 
         var handle = job.Schedule(false);
 
-        _jobScheduler.Flush();
+        Scheduler.Flush();
         handle.Complete();
         handle.Return();
 
@@ -64,7 +35,7 @@ public class CompleteTests
         var handle1 = job1.Schedule(false);
         var handle2 = job2.Schedule(false);
 
-        _jobScheduler.Flush();
+        Scheduler.Flush();
 
         handle1.Complete();
         handle2.Complete();
@@ -92,11 +63,11 @@ public class CompleteTests
         });
 
         var handle1 = job1.Schedule(false);
-        _jobScheduler.Flush();
+        Scheduler.Flush();
         handle1.Complete();
 
         var handle2 = job2.Schedule(false);
-        _jobScheduler.Flush();
+        Scheduler.Flush();
         handle2.Complete();
 
         handle1.Return();
@@ -119,7 +90,7 @@ public class CompleteTests
         var jobs = Enumerable.Repeat(0, jobCount).Select(_ => new SleepJob(sleepTime)).ToList();
         var handles = jobs.Select(j => j.Schedule(false)).ToList();
 
-        _jobScheduler.Flush();
+        Scheduler.Flush();
 
         foreach (var handle in handles) handle.Complete();
 
