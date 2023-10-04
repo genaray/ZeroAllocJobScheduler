@@ -55,15 +55,12 @@ internal class AllocationTests : SchedulerTestFixture
         {
             handle = Scheduler.Schedule(job);
         }, Is.AllocatingMemory());
-        
-        Assert.That(() =>
-        {
-            Scheduler.Flush();
-            handle.Complete();
-            handle2 = Scheduler.Schedule(job);
-            Scheduler.Flush();
-            handle2.Complete();
-        }, Is.Not.AllocatingMemory());
+
+        Assert.That(() => { Scheduler.Flush(); }, Is.Not.AllocatingMemory());
+        Assert.That(() => { handle.Complete(); }, Is.Not.AllocatingMemory());
+        Assert.That(() => { handle2 = Scheduler.Schedule(job); }, Is.Not.AllocatingMemory());
+        Assert.That(() => { Scheduler.Flush(); }, Is.Not.AllocatingMemory());
+        Assert.That(() => { handle2.Complete(); }, Is.Not.AllocatingMemory());
     }
 
     [Test]

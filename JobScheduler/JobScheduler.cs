@@ -70,15 +70,17 @@ public class JobScheduler : IDisposable
             CheckQueueEvent.WaitOne();
             CheckQueueEvent.Reset();
 
-            while (Jobs.TryDequeue(out var jobMeta))
+            while (Jobs.TryDequeue(out var jobMeta) && !token.IsCancellationRequested)
             {
                 // if we've got dependencies, we gotta resolve that first
                 JobInfoPool.JobInfo info;
-                // TODO: R/W lock
-                lock (JobInfoPool)
+
+                JobInfoPoolLock.EnterReadLock();
+                try
                 {
                     info = JobInfoPool.GetInfo(jobMeta.JobHandle.JobID);
                 }
+                finally { JobInfoPoolLock.ExitReadLock(); }
 
                 // check multiple dependencies
                 if (info.Dependencies is not null)
@@ -98,16 +100,18 @@ public class JobScheduler : IDisposable
                 // it might be null if this is a job generated with CombineDependencies
                 jobMeta.Job?.Execute();
 
-                // todo: see if we can avoid locks
                 // the purpose of this lock is to ensure that the Complete method always subscribes and listens to an existant signal.
-                lock (JobInfoPool)
+                ManualResetEvent? handle;
+                JobInfoPoolLock.EnterWriteLock();
+                try
                 {
                     // remove the job from circulation
-                    var handle = JobInfoPool.MarkComplete(jobMeta.JobHandle.JobID);
-                    // If JobScheduler.Complete was called on this job by a different thread, it told the job pool with Subscribe that we should ping,
-                    // and that Complete would handle recycling. We notify the event here.
-                    handle?.Set();
+                    handle = JobInfoPool.MarkComplete(jobMeta.JobHandle.JobID);
                 }
+                finally { JobInfoPoolLock.ExitWriteLock(); }
+                // If JobScheduler.Complete was called on this job by a different thread, it told the job pool with Subscribe that we should ping,
+                // and that Complete would handle recycling. We notify the event here.
+                handle?.Set();
             }
         }
         Interlocked.Decrement(ref _threadsActive);
@@ -116,6 +120,7 @@ public class JobScheduler : IDisposable
             // if we're the last thread active, we don't need this event
             // to unblock potentially active threads anymore.
             CheckQueueEvent?.Dispose();
+            JobInfoPoolLock.Dispose();
         }
     }
 
@@ -124,11 +129,12 @@ public class JobScheduler : IDisposable
         if (!IsMainThread()) throw new InvalidOperationException($"Can only call {nameof(Schedule)} from the thread that spawned the {nameof(JobScheduler)}!");
 
         int jobID;
-        lock (JobInfoPool)
+        JobInfoPoolLock.EnterWriteLock();
+        try
         {
             jobID = JobInfoPool.Schedule(dependency?.JobID ?? -1, dependencies);
-            var info = JobInfoPool.GetInfo(jobID);
         }
+        finally { JobInfoPoolLock.ExitWriteLock(); }
 
         var handle = new JobHandle(this, jobID);
 
@@ -185,10 +191,13 @@ public class JobScheduler : IDisposable
         // So all dependencies are guaranteed to be scheduled before their dependants
         foreach (var job in QueuedJobs)
         {
-            lock (JobInfoPool)
+            JobInfoPoolLock.EnterWriteLock();
+            try
             {
                 JobInfoPool.MarkFlushed(job.JobHandle.JobID);
             }
+            finally { JobInfoPoolLock.ExitWriteLock(); }
+
             // because this is a concurrentqueue (linkedlist implementation under the hood)
             // we don't have to worry about ordering issues (if someone dequeues while we do this, it'll just take the first one we added, which is fine)
             Jobs.Enqueue(job);
@@ -209,23 +218,29 @@ public class JobScheduler : IDisposable
     internal void Complete(int jobID)
     {
         ManualResetEvent handle;
-        lock (JobInfoPool)
+        JobInfoPoolLock.EnterWriteLock();
+        try
         {
-            // if we're already done with this job we don't care about signals.
+            // if we're already done with this job; we don't care about signals.
             if (JobInfoPool.IsComplete(jobID)) return;
             // if we never flushed the job, we'll be waiting forever!!!
             if (!JobInfoPool.IsFlushed(jobID)) throw new InvalidOperationException($"Cannot wait on a job that is not flushed to the workers! Call {nameof(Flush)} first.");
+
             // increments a subscription counter. This ensures that the job that completes this will ping the handle and won't dispose it yet.
             // If we didn't have this, there would be a race condition between multiple threads which wait for a job's completion.
             handle = JobInfoPool.SubscribeToHandle(jobID);
         }
+        finally { JobInfoPoolLock.ExitWriteLock(); }
+
         handle.WaitOne();
 
-        lock (JobInfoPool)
+        JobInfoPoolLock.EnterWriteLock();
+        try
         {
             // Return to pool. Ensures that nobody else is subscribed first, so this will always be the last person to have subscribed to a handle.
             JobInfoPool.ReturnHandle(jobID, handle);
         }
+        finally { JobInfoPoolLock.ExitWriteLock(); }
     }
 
     // Tracks the overall state of all threads; when canceled in Dispose, all child threads are exited
@@ -239,6 +254,9 @@ public class JobScheduler : IDisposable
 
     // Jobs flushed and waiting to be picked up by worker threads
     private ConcurrentQueue<JobMeta> Jobs { get; } = new();
+
+    // Locks the non-threadsafe JobInfoPool. Note: Do NOT use upgradeable locks, that allocates!
+    private ReaderWriterLockSlim JobInfoPoolLock { get; } = new();
 
     // Tracks each job from scheduling to completion; when they complete, however, their data is removed from the pool and recycled.
     private JobInfoPool JobInfoPool { get; } = new();
