@@ -12,6 +12,7 @@ internal class ManualResetEventPolicy : IPooledObjectPolicy<ManualResetEvent>
 
     public bool Return(ManualResetEvent obj)
     {
+        // We don't reset here, because there's a chance a Set() followed by a Reset() can not notify threads. Instead we must reset when acquiring.
         return true;
     }
 }

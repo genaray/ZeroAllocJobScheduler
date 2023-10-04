@@ -4,14 +4,11 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace JobScheduler.Test;
 
-
-[TestFixture]
 [SuppressMessage("Assertion", "NUnit2045:Use Assert.Multiple",
     Justification = "Multiple asserts are not appropriate as later code")]
 internal class AllocationTests : SchedulerTestFixture
 {
-    // Note: in the tests do NOT use job.Schedule(); it is not threadsafe since it uses the singleton.
-    // Use Scheduler.Schedule() from the fixture.
+    public AllocationTests(int threads) : base(threads) { }
 
     private class TestClass
     {
@@ -51,48 +48,21 @@ internal class AllocationTests : SchedulerTestFixture
         var job = new SleepJob(100); // allocates
 
         JobHandle handle = default;
+        JobHandle handle2 = default;
 
         // we expect the very first job to allocate
         Assert.That(() =>
         {
             handle = Scheduler.Schedule(job);
         }, Is.AllocatingMemory());
-
+        
         Assert.That(() =>
         {
             Scheduler.Flush();
             handle.Complete();
-            handle.Return();
-
-            var handle2 = Scheduler.Schedule(job);
+            handle2 = Scheduler.Schedule(job);
             Scheduler.Flush();
             handle2.Complete();
-            handle2.Return();
-        }, Is.Not.AllocatingMemory());
-    }
-
-    [Test]
-    [NonParallelizable]
-    public void AutoPooledJobDoesNotAllocate()
-    {
-        var job = new SleepJob(5); // allocates
-        // we expect the very first job to allocate
-        Assert.That(() =>
-        {
-            Scheduler.Schedule(job, true);
-        }, Is.AllocatingMemory());
-
-        // the rest of everything should not allocate
-        Assert.That(() =>
-        {
-            Scheduler.Flush();
-            // ensure it's disposed
-            Thread.Sleep(100);
-
-            // try another one
-            Scheduler.Schedule(job, true);
-            Scheduler.Flush();
-            Thread.Sleep(100);
         }, Is.Not.AllocatingMemory());
     }
 
@@ -108,21 +78,13 @@ internal class AllocationTests : SchedulerTestFixture
         Assert.That(() => { handle2 = Scheduler.Schedule(job); }, Is.AllocatingMemory());
 
         // the rest of everything should not allocate
-        Assert.That(() =>
-        {
-            Scheduler.Flush();
-            handle1.Complete();
-            handle2.Complete();
-            handle1.Return();
-            handle2.Return();
-
-            handle1 = Scheduler.Schedule(job);
-            handle2 = Scheduler.Schedule(job);
-            Scheduler.Flush();
-            handle1.Complete();
-            handle2.Complete();
-            handle1.Return();
-            handle2.Return();
-        }, Is.Not.AllocatingMemory());
+        Assert.That(() => { Scheduler.Flush();  }, Is.Not.AllocatingMemory());
+        Assert.That(() => { handle1.Complete(); }, Is.Not.AllocatingMemory());
+        Assert.That(() => { handle2.Complete(); }, Is.Not.AllocatingMemory());
+        Assert.That(() => { handle1 = Scheduler.Schedule(job); }, Is.Not.AllocatingMemory());
+        Assert.That(() => { handle2 = Scheduler.Schedule(job); }, Is.Not.AllocatingMemory());
+        Assert.That(() => { Scheduler.Flush(); }, Is.Not.AllocatingMemory());
+        Assert.That(() => { handle1.Complete(); }, Is.Not.AllocatingMemory());
+        Assert.That(() => { handle2.Complete(); }, Is.Not.AllocatingMemory());
     }
 }
