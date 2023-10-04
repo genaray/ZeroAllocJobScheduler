@@ -9,6 +9,7 @@ internal partial class SingleDependencyTests : SchedulerTestFixture
     [TestCase(1, 10)]
     [TestCase(10, 1)]
     [TestCase(5, 5)]
+    [TestCase(0, 0)]
     public void OneDependencyFunctions(int firstDuration, int secondDuration)
     {
         ActionJob job1 = null!;

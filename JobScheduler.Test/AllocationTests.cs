@@ -47,7 +47,7 @@ internal class AllocationTests : SchedulerTestFixture
     [TestCase(false)]
     public void RegularJobDoesNotAllocate(bool manuallyComplete)
     {
-        var job = new SleepJob(5); // allocates
+        var job = new SleepJob(2); // allocates
 
         JobHandle handle = default;
         JobHandle handle2 = default;
@@ -60,7 +60,7 @@ internal class AllocationTests : SchedulerTestFixture
 
         Assert.That(() => { Scheduler.Flush(); }, Is.Not.AllocatingMemory());
         if (manuallyComplete) Assert.That(() => { handle.Complete(); }, Is.Not.AllocatingMemory());
-        else Thread.Sleep(10);
+        else Thread.Sleep(100);
         Assert.That(() => { handle2 = Scheduler.Schedule(job); }, Is.Not.AllocatingMemory());
         Assert.That(() => { Scheduler.Flush(); }, Is.Not.AllocatingMemory());
         Assert.That(() => { handle2.Complete(); }, Is.Not.AllocatingMemory());
