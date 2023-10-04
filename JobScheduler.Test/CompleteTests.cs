@@ -101,6 +101,4 @@ internal class CompleteTests : SchedulerTestFixture
         Thread.Sleep(10);
         handle.Complete();
     }
-
-    // TODO: test multi-thread Complete; ensure that none hang
 }

@@ -7,7 +7,7 @@
 A high-performance alloc-free C# job scheduler.  
 Schedules and executes jobs on a set of worker threads with automatic pooling of internal handles. 
 
-# Code sample
+# Usage
 
 ```csharp
 
@@ -20,43 +20,60 @@ public class HeavyCalculation : IJob
   }
 }
 
-// Automatically chooses threads based on your processor count
-// Creates a global singleton instance
+// Automatically chooses threads based on your processor count, and names the process "MyThreads0", "MyThreads1", etc.
+// Should last the lifetime of your program!
 var scheduler = new JobScheduler("MyThreads");
 
 // You need to pool/create jobs by yourself
 var firstJob = new HeavyCalculation();  
 
-var firstHandle = firstJob.Schedule(false); // Schedules job locally; false = user must manually wait for Complete() and and manually Return() the handle to the pool
-scheduler.Flush();                          // Dispatches all scheduled jobs to the worker threads                      
+var firstHandle = scheduler.Schedule(firstJob); // Schedules job locally: this might allocate if JobScheduler needs more memory to hold all the concurrent tasks.
+                                                // But once those jobs are complete, the memory will be reused.
 
-firstHandle.Complete();                     // Blocks the thread until the job is complete
-firstHandle.Return();                       // Returns job to pool
+scheduler.Flush();                              // Dispatches all scheduled jobs to the worker threads
+
+firstHandle.Complete();                         // Blocks the thread until the job is complete.
 
 // Dispose at program exit
 scheduler.Dispose();                
 ```
 
-# Fire-and-forget sample
+# Dependencies
+
+To set a sequential dependency on a job, simply pass a created `JobHandle` to `JobScheduler.Schedule(job, dependency)`.
 
 ```csharp
-var scheduler = new JobScheduler("MyThreads"); 
-
-var firstJob = new HeavyCalculation();    
-var firstHandle = firstJob.Schedule(true);  // Schedules job locally; true = user can't wait for Complete(), and it will automatically Return() on completion
-scheduler.Flush();                          // Dispatches all scheduled jobs to the worker threads   
-
-scheduler.Dispose();                
+var handle1 = scheduler.Schedule(job1);
+var handle2 = scheduler.Schedule(job2, handle1);    // job2 will only begin execution once job1 is complete!
+scheduler.Flush();
 ```
 
-# Syntactic sugar
+# Multiple dependencies
+
+Use `Scheduler.CombineDependencies(JobHandle[] handles)` to get a new handle that depends on the handles in parallel. That handle can then be passed into future `Schedule` call as a dependency itself!
 
 ```csharp
-IJob.Schedule(IList<IJob> jobs, IList<JobHandle> handles);   // Schedules a bunch of jobs at once, and adds their handles to the passed-in list, which is cleared
+// You must create the array of handles, and handle caching/storage yourself.
+JobHandle[] handles = new JobHandle[2];
 
-JobHandle.Complete(JobHandle[] handles);                     // Waits for all JobHandles to finish, and blocks the main thread until they complete
-JobHandle.Complete(IList<JobHandle> handles);
+handles[0] = Scheduler.Schedule(job1);
+handles[1] = Scheduler.Schedule(job2);
+JobHandle combinedHandle = Scheduler.CombineDependencies(handles);          // Combines all handles into the array into one
 
-JobHandle.Return(JobHandle[] handles);                       // Returns all handles to the pool
-JobHandle.Return(IList<JobHandle> handles);
+var dependantHandle = Scheduler.Schedule(job3, combinedHandle);             // job3 now depends on job1 and job2.
+                                                                            // job1 and job2 can Complete() in parallel, but job3 can only run once both are complete.
+
+dependantHandle.Complete();                                                 // Blocks the main thread until all three tasks are complete.
 ```
+
+
+# Bulk complete
+
+Rather than using `CombineDependencies()`, if you just need to block the main thread until a list of handles are complete, you can use this syntax:
+
+```csharp
+JobHandle.CompleteAll(JobHandle[] handles);                     // Waits for all JobHandles to finish, and blocks the main thread until they each complete (in any order)
+JobHandle.CompleteAll(IList<JobHandle> handles);
+```
+
+Or, if you don't want to maintain a list or array, you can just call `handle.Complete()` on all your handles, in any order.
