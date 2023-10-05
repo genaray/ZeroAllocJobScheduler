@@ -24,14 +24,24 @@ public class JobScheduler : IDisposable
     /// </summary>
     private readonly struct JobMeta
     {
-        public JobMeta(in JobHandle jobHandle, IJob? job)
+        public JobMeta(in JobHandle jobHandle, IJob? job, int dependencyID, JobHandle[]? combinedDependencies)
         {
             JobHandle = jobHandle;
             Job = job;
+            Dependencies = combinedDependencies;
+            DependencyID = dependencyID;
+
+            if (Dependencies != null && DependencyID != -1)
+                throw new InvalidOperationException("Jobs can't have singular and multiple dependencies");
         }
 
         public JobHandle JobHandle { get; }
         public IJob? Job { get; }
+
+        public int DependencyID { get; } = -1;
+
+        public JobHandle[]? Dependencies { get; } = null;
+
     }
 
     /// <summary>
@@ -73,26 +83,20 @@ public class JobScheduler : IDisposable
             while (Jobs.TryDequeue(out var jobMeta) && !token.IsCancellationRequested)
             {
                 // if we've got dependencies, we gotta resolve that first
-                JobInfoPool.JobInfo info;
-
-                lock (JobInfoPool)
-                {
-                    info = JobInfoPool.GetInfo(jobMeta.JobHandle.JobID);
-                }
 
                 // check multiple dependencies
-                if (info.Dependencies is not null)
+                if (jobMeta.Dependencies is not null)
                 {
-                    foreach (var dependency in info.Dependencies)
+                    foreach (var dependency in jobMeta.Dependencies)
                     {
                         dependency.Complete();
                     }
                 }
 
                 // check single dependency
-                if (info.DependencyID != -1)
+                if (jobMeta.DependencyID != -1)
                 {
-                    Complete(info.DependencyID);
+                    Complete(jobMeta.DependencyID);
                 }
 
                 // it might be null if this is a job generated with CombineDependencies
@@ -126,12 +130,12 @@ public class JobScheduler : IDisposable
         int jobID;
         lock (JobInfoPool)
         {
-            jobID = JobInfoPool.Schedule(dependency?.JobID ?? -1, dependencies);
+            jobID = JobInfoPool.Schedule();
         }
 
         var handle = new JobHandle(this, jobID);
 
-        var jobMeta = new JobMeta(in handle, job);
+        var jobMeta = new JobMeta(in handle, job, dependency?.JobID ?? -1, dependencies);
         QueuedJobs.Add(jobMeta);
         return handle;
     }

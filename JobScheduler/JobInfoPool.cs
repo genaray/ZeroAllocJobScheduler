@@ -24,21 +24,13 @@ internal class JobInfoPool
 
     public struct JobInfo
     {
-        public JobInfo(int jobID, int dependencyID, ManualResetEvent waitHandle, JobHandle[]? dependencies)
+        public JobInfo(int jobID, ManualResetEvent waitHandle)
         {
             JobID = jobID;
-            DependencyID = dependencyID;
             WaitHandle = waitHandle;
-            Dependencies = dependencies;
-            if (dependencies != null && DependencyID != -1)
-                throw new InvalidOperationException("Jobs can't have singular and multiple dependencies");
         }
 
         public int JobID { get; }
-
-        public int DependencyID { get; } = -1;
-
-        public JobHandle[]? Dependencies { get; } = null;
 
         /// <summary>
         /// The Handle of the job. Null if the job hasn't been flushed to threads, yet.
@@ -51,10 +43,10 @@ internal class JobInfoPool
     /// Create a new <see cref="JobInfo"/> in the pool, with an optional dependency
     /// </summary>
     /// <returns>The Job ID of the created job</returns>
-    public int Schedule(int dependencyID, JobHandle[]? dependencies)
+    public int Schedule()
     {
         var id = nextID;
-        JobInfo info = new(id, dependencyID, ManualResetEventPool.Get(), dependencies);
+        JobInfo info = new(id, ManualResetEventPool.Get());
 
         info.WaitHandle.Reset(); // must reset when acquiring
         Infos[id] = info;
@@ -161,24 +153,6 @@ internal class JobInfoPool
         if (IsComplete(jobID)) return true;
         return Infos[jobID].Flushed;
     }
-
-    ///// <summary>
-    ///// Returns the job's dependency ID; i.e. how many other jobs it relies on
-    ///// </summary>
-    ///// <param name="jobID"></param>
-    ///// <returns></returns>
-    //public int GetDependencyLevel(int jobID)
-    //{
-    //    ValidateJobNotComplete(jobID);
-    //    int level = 0;
-    //    int dependency = Infos[jobID].DependencyID;
-    //    while (dependency != -1)
-    //    {
-    //        level++;
-    //        dependency = Infos[dependency].DependencyID;
-    //    }
-    //    return level;
-    //}
 
     [Conditional("DEBUG")]
     private void ValidateJobID(int jobID)
