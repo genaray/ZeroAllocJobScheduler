@@ -36,7 +36,6 @@ internal class JobInfoPool
         /// The Handle of the job. Null if the job hasn't been flushed to threads, yet.
         /// </summary>
         public ManualResetEvent WaitHandle { get; }
-        public bool Flushed { get; set; }
     }
 
     /// <summary>
@@ -66,20 +65,6 @@ internal class JobInfoPool
     {
         ValidateJobNotComplete(jobID);
         return Infos[jobID];
-    }
-    
-    /// <summary>
-    /// Mark a job as flushed from the scheduling queue and dispatched to threads
-    /// </summary>
-    /// <param name="jobID"></param>
-    /// <exception cref="InvalidOperationException"></exception>
-    public void MarkFlushed(int jobID)
-    {
-        ValidateJobNotComplete(jobID);
-        var info = Infos[jobID];
-        if (info.Flushed) throw new InvalidOperationException("Job is already flushed!");
-        info.Flushed = true;
-        Infos[jobID] = info;
     }
 
     /// <summary>
@@ -140,18 +125,6 @@ internal class JobInfoPool
     {
         ValidateJobID(jobID);
         return !Infos.ContainsKey(jobID);
-    }
-
-    /// <summary>
-    /// Returns whether a given job is Flushed.
-    /// </summary>
-    /// <param name="jobID"></param>
-    /// <returns></returns>
-    public bool IsFlushed(int jobID)
-    {
-        ValidateJobID(jobID);
-        if (IsComplete(jobID)) return true;
-        return Infos[jobID].Flushed;
     }
 
     [Conditional("DEBUG")]

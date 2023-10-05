@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 
 namespace JobScheduler;
@@ -136,7 +137,14 @@ public class JobScheduler : IDisposable
         var handle = new JobHandle(this, jobID);
 
         var jobMeta = new JobMeta(in handle, job, dependency?.JobID ?? -1, dependencies);
-        QueuedJobs.Add(jobMeta);
+
+        // we only lock in debug mode for strict flushed-jobs checking within Complete()
+#if DEBUG
+        lock (QueuedJobs)
+#endif
+        {
+            QueuedJobs.Add(jobMeta);
+        }
         return handle;
     }
 
@@ -183,26 +191,26 @@ public class JobScheduler : IDisposable
     {
         if (!IsMainThread()) throw new InvalidOperationException($"Can only call {nameof(Flush)} from the thread that spawned the {nameof(JobScheduler)}!");
 
-
-        // QueuedJobs is guaranteed to be scheduled in FIFO dependency order
-        // So all dependencies are guaranteed to be scheduled before their dependants
-        foreach (var job in QueuedJobs)
+        // we only lock in debug mode for strict flushed-jobs checking within Complete()
+#if DEBUG
+        lock (QueuedJobs)
+#endif
         {
-            lock (JobInfoPool)
+            // QueuedJobs is guaranteed to be scheduled in FIFO dependency order
+            // So all dependencies are guaranteed to be scheduled before their dependants
+            foreach (var job in QueuedJobs)
             {
-                JobInfoPool.MarkFlushed(job.JobHandle.JobID);
+                // because this is a concurrentqueue (linkedlist implementation under the hood)
+                // we don't have to worry about ordering issues (if someone dequeues while we do this, it'll just take the first one we added, which is fine)
+                Jobs.Enqueue(job);
             }
 
-            // because this is a concurrentqueue (linkedlist implementation under the hood)
-            // we don't have to worry about ordering issues (if someone dequeues while we do this, it'll just take the first one we added, which is fine)
-            Jobs.Enqueue(job);
-        }
-        
-        // clear the the incoming queue
-        QueuedJobs.Clear();
+            // clear the the incoming queue
+            QueuedJobs.Clear();
 
-        // tell the child processes that we've updated the queue, in case they've stalled out
-        CheckQueueEvent.Set();
+            // tell the child processes that we've updated the queue, in case they've stalled out
+            CheckQueueEvent.Set();
+        }
     }
 
     /// <summary>
@@ -212,14 +220,14 @@ public class JobScheduler : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal void Complete(int jobID)
     {
+        CheckIfJobIsFlushed(jobID);
+
         ManualResetEvent handle;
 
         lock (JobInfoPool)
         {
             // if we're already done with this job; we don't care about signals.
             if (JobInfoPool.IsComplete(jobID)) return;
-            // if we never flushed the job, we'll be waiting forever!!!
-            if (!JobInfoPool.IsFlushed(jobID)) throw new InvalidOperationException($"Cannot wait on a job that is not flushed to the workers! Call {nameof(Flush)} first.");
 
             // increments a subscription counter. This ensures that the job that completes this will ping the handle and won't dispose it yet.
             // If we didn't have this, there would be a race condition between multiple threads which wait for a job's completion.
@@ -232,6 +240,18 @@ public class JobScheduler : IDisposable
         {
             // Return to pool. Ensures that nobody else is subscribed first, so this will always be the last person to have subscribed to a handle.
             JobInfoPool.ReturnHandle(jobID, handle);
+        }
+    }
+
+    [Conditional("DEBUG")]
+    private void CheckIfJobIsFlushed(int jobID)
+    {
+        lock (QueuedJobs)
+        {
+            foreach (var job in QueuedJobs)
+            {
+                if (job.JobHandle.JobID == jobID) throw new InvalidOperationException($"Cannot wait on a job that is not flushed to the workers! Call {nameof(Flush)} first.");
+            }
         }
     }
 
@@ -259,7 +279,13 @@ public class JobScheduler : IDisposable
         if (!IsMainThread()) throw new InvalidOperationException($"Can only call {nameof(Dispose)} from the thread that spawned the {nameof(JobScheduler)}!");
         // notify all threads to cancel
         CancellationTokenSource.Cancel(false);
-        QueuedJobs.Clear();
+        // we only lock in debug mode for strict flushed-jobs checking within Complete()
+#if DEBUG
+        lock (QueuedJobs)
+#endif
+        {
+            QueuedJobs.Clear();
+        }
         Jobs.Clear();
         // In case some thread is waiting on the queue, bump them out.
         // They will then dispose this event, finishing the Dispose().
