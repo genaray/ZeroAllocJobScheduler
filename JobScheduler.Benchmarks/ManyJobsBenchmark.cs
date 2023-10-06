@@ -64,7 +64,7 @@ public class ManyJobsBenchmark
     }
 
     [Benchmark]
-    public void TestParallel()
+    public void BenchmarkParallel()
     {
         for (int i = 0; i < JobCount; i++)
         {

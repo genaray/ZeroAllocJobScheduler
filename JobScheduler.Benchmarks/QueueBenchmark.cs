@@ -33,19 +33,19 @@ public class QueueBenchmark
         Queue = null!;
     }
 
-    private static int Nothing = 0;
+    private static int _nothing = 0;
 
     [Benchmark]
-    public void TestEmptyBenchmark()
+    public void BenchmarkEmpty()
     {
         for (int i = 0; i < QueueCapacity; i++)
         {
-            Nothing++;
+            _nothing++;
         }
     }
 
     [Benchmark]
-    public void TestConcurrentQueue()
+    public void BenchmarkConcurrentQueue()
     {
         for (int i = 0; i < QueueCapacity; i++)
         {
@@ -54,7 +54,7 @@ public class QueueBenchmark
     }
 
     [Benchmark]
-    public void TestQueue()
+    public void BenchmarkQueue()
     {
         for (int i = 0; i < QueueCapacity; i++)
         {
