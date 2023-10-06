@@ -11,7 +11,7 @@ public class ManyJobsBenchmark
     /// <summary>
     /// The thread count tested
     /// </summary>
-    [Params(0)] public int Threads = 0;     
+    [Params(0)] public int Threads = 0;
 
     /// <summary>
     /// Whether the benchmark should do a dry run before starting the benchmark, to fill up any data structures that might allocate
@@ -22,7 +22,7 @@ public class ManyJobsBenchmark
     /// <summary>
     /// The maximum amount of concurrent jobs active at one time.
     /// </summary>
-    [Params(128)] public int ConcurrentJobs;
+    [Params(32, 128)] public int ConcurrentJobs;
 
     /// <summary>
     /// How many sequences of <see cref="ConcurrentJobs"/> to run.
@@ -84,6 +84,21 @@ public class ManyJobsBenchmark
             }
             for (int i = 0; i < ConcurrentJobs; i++)
             {
+                Handles[i].Return();
+            }
+        }
+    }
+
+    [Benchmark]
+    public void BenchmarkSequential()
+    {
+        for (int w = 0; w < Waves; w++)
+        {
+            for (int i = 0; i < ConcurrentJobs; i++)
+            {
+                Handles[i] = Scheduler.Schedule(Empty);
+                Scheduler.Flush();
+                Handles[i].Complete();
                 Handles[i].Return();
             }
         }
