@@ -6,7 +6,12 @@ public class QueueBenchmark
     /// <summary>
     /// The amount of items in a Queue.
     /// </summary>
-    [Params(10, 100, 5000000)] public int QueueCapacity;
+    [Params(1, 32, 64, 128, 256, 512)] public int QueueCapacity;
+
+    /// <summary>
+    /// The amount of times to repeat the add/clear process
+    /// </summary>
+    [Params(32)] public int Reps;
 
     Queue<int> Queue = null!;
     ConcurrentQueue<int> ConcurrentQueue = null!;
@@ -33,32 +38,42 @@ public class QueueBenchmark
         Queue = null!;
     }
 
-    private static int _nothing = 0;
-
     [Benchmark]
-    public void BenchmarkEmpty()
+    public void BenchmarkConcurrentQueue()
     {
-        for (int i = 0; i < QueueCapacity; i++)
+        for (int r = 0; r < Reps; r++)
         {
-            _nothing++;
+            for (int i = 0; i < QueueCapacity; i++)
+            {
+                ConcurrentQueue.Enqueue(0);
+            }
+            ConcurrentQueue.Clear();
         }
     }
 
     [Benchmark]
-    public void BenchmarkConcurrentQueue()
+    public void BenchmarkConcurrentQueueWithDequeue()
     {
-        for (int i = 0; i < QueueCapacity; i++)
+        for (int r = 0; r < Reps; r++)
         {
-            ConcurrentQueue.Enqueue(0);
+            for (int i = 0; i < QueueCapacity; i++)
+            {
+                ConcurrentQueue.Enqueue(0);
+            }
+            while (ConcurrentQueue.TryDequeue(out var _)) { }
         }
     }
 
     [Benchmark]
     public void BenchmarkQueue()
     {
-        for (int i = 0; i < QueueCapacity; i++)
+        for (int r = 0; r < Reps; r++)
         {
-            Queue.Enqueue(0);
+            for (int i = 0; i < QueueCapacity; i++)
+            {
+                Queue.Enqueue(0);
+            }
+            Queue.Clear();
         }
     }
 }
