@@ -9,51 +9,79 @@ namespace JobScheduler;
 /// </summary>
 internal class JobInfoPool
 {
-    // This class operates on the assumption that, if a JobID of lesser ID is no longer present, 
-
     int nextID = 0;
 
-    // consider using this for allocation-friendliness: https://github.com/Wsm2110/Faster.Map/blob/main/src/FastMap.cs
-    private Dictionary<int, JobInfo> Infos { get; } = new();
+    // a list indexed by job ID; we can reuse job IDs once they're complete
+    private List<JobInfo?> Infos { get; } = new(32);
 
-    // Along with the other data, we need to keep track of if we can dispose the handle of a JobID
-    private Dictionary<int, int> WaitHandleSubscriptionCounts { get; } = new();
+    // the jobIDs to reuse, as well as the last version used
+    private Queue<(int ID, int Version)> ReusedIDs { get; } = new(32);
+
 
     // A pool of handles to use for everything.
-    private DefaultObjectPool<ManualResetEvent> ManualResetEventPool { get; } = new(new ManualResetEventPolicy());
+    private DefaultObjectPool<ManualResetEvent> ManualResetEventPool { get; } = new(new ManualResetEventPolicy(), 32);
 
     public struct JobInfo
     {
-        public JobInfo(int jobID, ManualResetEvent waitHandle)
+        public JobInfo(int jobID, int version, ManualResetEvent waitHandle)
         {
             JobID = jobID;
             WaitHandle = waitHandle;
+            JobIDVersion = version;
         }
 
         public int JobID { get; }
 
+        public int JobIDVersion { get; }
+
         /// <summary>
-        /// The Handle of the job. Null if the job hasn't been flushed to threads, yet.
+        /// The Handle of the job. 
         /// </summary>
         public ManualResetEvent WaitHandle { get; }
+
+        /// <summary>
+        /// When this hits 0, we can dispose the WaitHandle, and the JobID
+        /// </summary>
+        public int WaitHandleSubscriptionCount { get; set; } = 0;
+
+        /// <summary>
+        /// We're complete, but the WaitHandle might not be disposed. ISSUE HERE: We might go over x concurrent jobs while we wait for anyone
+        /// in the process of calling Complete() to finish up
+        /// </summary>
+        public bool IsComplete { get; set; }
     }
 
     /// <summary>
     /// Create a new <see cref="JobInfo"/> in the pool, with an optional dependency
     /// </summary>
-    /// <returns>The Job ID of the created job</returns>
-    public int Schedule()
+    /// <returns>The <see cref="JobID"/> of the created job</returns>
+    public JobID Schedule()
     {
-        var id = nextID;
-        JobInfo info = new(id, ManualResetEventPool.Get());
+        int version = 0;
+        int id = -1;
+        if (ReusedIDs.TryDequeue(out var ids))
+        {
+            id = ids.ID;
+            version = ids.Version + 1;
+        }
+
+        // no IDs left to reuse, so we need to make a new one
+        if (id == -1)
+        {
+            id = nextID;
+            nextID++;
+        }
+
+        JobInfo info = new(id, version, ManualResetEventPool.Get());
 
         info.WaitHandle.Reset(); // must reset when acquiring
-        Infos[id] = info;
-        nextID++;
 
-        // we want to allocate (sometimes) during Schedule but nowhere else, and we know we'll need this later if the user calls complete, so:
-        WaitHandleSubscriptionCounts[id] = 0;
-        return id;
+        while (Infos.Count <= id)
+        {
+            Infos.Add(null);
+        }
+        Infos[id] = info;
+        return new(id, version);
     }
 
     /// <summary>
@@ -61,57 +89,83 @@ internal class JobInfoPool
     /// </summary>
     /// <param name="jobID"></param>
     /// <returns></returns>
-    public JobInfo GetInfo(int jobID)
+    public JobInfo GetInfo(JobID jobID)
     {
         ValidateJobNotComplete(jobID);
-        return Infos[jobID];
+        return Infos[jobID.ID]!.Value; // we ensured that we weren't complete, so this must exist
     }
 
     /// <summary>
     /// Mark a job as Complete, removing it from circulation entirely. The WaitHandle is not disposed yet
     /// </summary>
     /// <param name="jobID"></param>
-    public ManualResetEvent? MarkComplete(int jobID)
+    public ManualResetEvent? MarkComplete(JobID jobID)
     {
         ValidateJobNotComplete(jobID);
-        var job = Infos[jobID];
-        Infos.Remove(jobID);
+        var job = Infos[jobID.ID]!.Value;
+        job.IsComplete = true;
+        Infos[jobID.ID] = job;
 
-        if (WaitHandleSubscriptionCounts[jobID] != 0)
+        if (job.WaitHandleSubscriptionCount != 0)
         {
-            // we have subscribers, so we give up the handle to allow pinging
+            // we have subscribers, so we give up the handle to allow pinging, and keep it until we've resolved subscribers
+            Infos[jobID.ID] = job;
             return job.WaitHandle;
         }
         else
         {
             // we do not have subscribers, so the handle was never used
-            WaitHandleSubscriptionCounts.Remove(jobID);
-            ManualResetEventPool.Return(job.WaitHandle);
+            ReturnJobID(jobID.ID, job);
             return null;
         }
     }
 
-    public void ReturnHandle(int jobID, ManualResetEvent handle)
+    /// <summary>
+    /// Return a handle to the pool. Only valid when <see cref="SubscribeToHandle"/> was called and the produced handle was waited for.
+    /// </summary>
+    /// <param name="jobID"></param>
+    public void ReturnHandle(JobID jobID)
     {
         // decrement our subscribed handles for this jobID
         // ensures that we only dispose once all callers have gotten the message
-        if (WaitHandleSubscriptionCounts.ContainsKey(jobID)) WaitHandleSubscriptionCounts[jobID]--;
-        if (WaitHandleSubscriptionCounts[jobID] == 0)
+        var job = Infos[jobID.ID];
+
+        // ensure we haven't already returned it prematurely
+        Debug.Assert(job is not null);
+        // ensure we're actually in a complete status now
+        Debug.Assert(job.Value.IsComplete);
+        // ensure we somehow haven't reused it
+        Debug.Assert(job.Value.JobIDVersion == jobID.Version);
+
+        var jobVal = job.Value;
+
+        jobVal.WaitHandleSubscriptionCount--;
+        Infos[jobID.ID] = jobVal;
+        if (jobVal.WaitHandleSubscriptionCount == 0)
         {
-            WaitHandleSubscriptionCounts.Remove(jobID);
-            ManualResetEventPool.Return(handle);
+            ReturnJobID(jobID.ID, jobVal);
         }
     }
 
-    public ManualResetEvent SubscribeToHandle(int jobID)
+    private void ReturnJobID(int jobID, in JobInfo info)
     {
-        ValidateJobNotComplete(jobID);
-        var job = Infos[jobID];
+        Debug.Assert(Infos[jobID] is not null);
+        Debug.Assert(Infos[jobID]!.Value.JobIDVersion == info.JobIDVersion);
+        Debug.Assert(Infos[jobID]!.Value.IsComplete);
+        Infos[jobID] = null;
+        ReusedIDs.Enqueue((jobID, info.JobIDVersion));
+        ManualResetEventPool.Return(info.WaitHandle);
+    }
+
+    public ManualResetEvent SubscribeToHandle(JobID jobID)
+    {
+        ValidateJobNotComplete(jobID); // ensure we're still on the right version
+        var job = Infos[jobID.ID]!.Value;
 
         // increment our subscribed handles for this jobID
         // ensures that we only dispose once all callers have gotten the message
-        if (!WaitHandleSubscriptionCounts.ContainsKey(jobID)) WaitHandleSubscriptionCounts[jobID] = 0;
-        WaitHandleSubscriptionCounts[jobID]++;
+        job.WaitHandleSubscriptionCount++;
+        Infos[jobID.ID] = job;
 
         return job.WaitHandle;
     }
@@ -121,21 +175,25 @@ internal class JobInfoPool
     /// </summary>
     /// <param name="jobID"></param>
     /// <returns></returns>
-    public bool IsComplete(int jobID)
+    public bool IsComplete(JobID jobID)
     {
         ValidateJobID(jobID);
-        return !Infos.ContainsKey(jobID);
+        var job = Infos[jobID.ID];
+        if (job is null) return true; // if it's missing, we've completed and removed it, and its ID hasn't been reused yet
+        if (job.Value.JobIDVersion != jobID.Version) return true; // if we're a different version, the jobID is long since completed and reused
+        if (job.Value.IsComplete) return true; // we're the right version, and therefore waiting on some handles to Complete(), but we are definitely complete
+        return false;
     }
 
     [Conditional("DEBUG")]
-    private void ValidateJobID(int jobID)
+    private void ValidateJobID(JobID jobID)
     {
-        if (jobID < 0) throw new ArgumentOutOfRangeException("Job ID not valid!");
-        if (jobID >= nextID) throw new ArgumentOutOfRangeException("Job ID doesn't exist yet!");
+        if (jobID.ID < 0) throw new ArgumentOutOfRangeException("Job ID not valid!");
+        if (jobID.ID >= nextID) throw new ArgumentOutOfRangeException("Job ID doesn't exist yet!");
     }
 
     [Conditional("DEBUG")]
-    private void ValidateJobNotComplete(int jobID)
+    private void ValidateJobNotComplete(JobID jobID)
     {
         if (IsComplete(jobID)) throw new InvalidOperationException("Job is already complete!");
     }

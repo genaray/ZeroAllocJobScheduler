@@ -25,21 +25,21 @@ public class JobScheduler : IDisposable
     /// </summary>
     private readonly struct JobMeta
     {
-        public JobMeta(in JobHandle jobHandle, IJob? job, int dependencyID, JobHandle[]? combinedDependencies)
+        public JobMeta(in JobHandle jobHandle, IJob? job, JobID? dependencyID, JobHandle[]? combinedDependencies)
         {
             JobHandle = jobHandle;
             Job = job;
             Dependencies = combinedDependencies;
             DependencyID = dependencyID;
 
-            if (Dependencies != null && DependencyID != -1)
+            if (Dependencies != null && DependencyID != null)
                 throw new InvalidOperationException("Jobs can't have singular and multiple dependencies");
         }
 
         public JobHandle JobHandle { get; }
         public IJob? Job { get; }
 
-        public int DependencyID { get; } = -1;
+        public JobID? DependencyID { get; }
 
         public JobHandle[]? Dependencies { get; } = null;
 
@@ -95,9 +95,9 @@ public class JobScheduler : IDisposable
                 }
 
                 // check single dependency
-                if (jobMeta.DependencyID != -1)
+                if (jobMeta.DependencyID != null)
                 {
-                    Complete(jobMeta.DependencyID);
+                    Complete(jobMeta.DependencyID.Value);
                 }
 
                 // it might be null if this is a job generated with CombineDependencies
@@ -128,7 +128,7 @@ public class JobScheduler : IDisposable
     {
         if (!IsMainThread()) throw new InvalidOperationException($"Can only call {nameof(Schedule)} from the thread that spawned the {nameof(JobScheduler)}!");
 
-        int jobID;
+        JobID jobID;
         lock (JobInfoPool)
         {
             jobID = JobInfoPool.Schedule();
@@ -136,7 +136,7 @@ public class JobScheduler : IDisposable
 
         var handle = new JobHandle(this, jobID);
 
-        var jobMeta = new JobMeta(in handle, job, dependency?.JobID ?? -1, dependencies);
+        var jobMeta = new JobMeta(in handle, job, dependency?.JobID ?? null, dependencies);
 
         // we only lock in debug mode for strict flushed-jobs checking within Complete()
 #if DEBUG
@@ -218,7 +218,7 @@ public class JobScheduler : IDisposable
     /// </summary>
     /// <param name="jobID"></param>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal void Complete(int jobID)
+    internal void Complete(JobID jobID)
     {
         CheckIfJobIsFlushed(jobID);
 
@@ -239,18 +239,20 @@ public class JobScheduler : IDisposable
         lock (JobInfoPool)
         {
             // Return to pool. Ensures that nobody else is subscribed first, so this will always be the last person to have subscribed to a handle.
-            JobInfoPool.ReturnHandle(jobID, handle);
+            // Once the last one of these returns, we can recycle the handle and the jobID
+            JobInfoPool.ReturnHandle(jobID);
         }
     }
 
     [Conditional("DEBUG")]
-    private void CheckIfJobIsFlushed(int jobID)
+    private void CheckIfJobIsFlushed(JobID jobID)
     {
         lock (QueuedJobs)
         {
             foreach (var job in QueuedJobs)
             {
-                if (job.JobHandle.JobID == jobID) throw new InvalidOperationException($"Cannot wait on a job that is not flushed to the workers! Call {nameof(Flush)} first.");
+                if (job.JobHandle.JobID == jobID)
+                    throw new InvalidOperationException($"Cannot wait on a job that is not flushed to the workers! Call {nameof(Flush)} first.");
             }
         }
     }

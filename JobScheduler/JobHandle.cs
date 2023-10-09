@@ -3,14 +3,28 @@ using System.Runtime.CompilerServices;
 namespace JobScheduler;
 
 /// <summary>
+/// Uniquely identifies a particular run Job
+/// </summary>
+internal readonly record struct JobID
+{
+    public int ID { get; }
+    public int Version { get; }
+    public JobID(int id, int version)
+    {
+        ID = id;
+        Version = version;
+    }
+}
+
+/// <summary>
 /// Used to control and await a scheduled <see cref="IJob"/>.
 /// </summary>
 public readonly struct JobHandle
 {
     internal JobScheduler Scheduler { get; }
-    internal int JobID { get; } = -1;
+    internal JobID JobID { get; }
 
-    internal JobHandle(JobScheduler scheduler, int id)
+    internal JobHandle(JobScheduler scheduler, JobID id)
     {
         JobID = id;
         Scheduler = scheduler;
