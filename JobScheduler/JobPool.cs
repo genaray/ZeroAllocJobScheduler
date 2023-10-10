@@ -179,11 +179,9 @@ internal class JobPool
     {
         ValidateJobId(jobId);
         var job = _jobs[jobId.Id];
-        
-        if (job.JobId.Id == -1) return true; // if it's missing, we've completed and removed it, and its ID hasn't been reused yet
-        if (job.JobId.Version != jobId.Version) return true; // if we're a different version, the jobID is long since completed and reused
-        if (job.IsComplete) return true; // we're the right version, and therefore waiting on some handles to Complete(), but we are definitely complete
-        return false;
+        return job.JobId.Id == -1 || // if it's missing, we've completed and removed it, and its ID hasn't been reused yet
+               job.JobId.Version != jobId.Version || // if we're a different version, the jobID is long since completed and reused
+               job.IsComplete; // we're the right version, and therefore waiting on some handles to Complete(), but we are definitely complete
     }
 
     [Conditional("DEBUG")]

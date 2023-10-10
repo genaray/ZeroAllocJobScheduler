@@ -30,17 +30,30 @@ public class JobScheduler : IDisposable
             JobHandle = jobHandle;
             Job = job;
             Dependencies = combinedDependencies;
-            DependencyID = dependencyID;
+            DependencyId = dependencyID;
 
-            if (Dependencies != null && DependencyID != null)
+            if (Dependencies != null && DependencyId != null)
                 throw new InvalidOperationException("Jobs can't have singular and multiple dependencies");
         }
 
-        public JobHandle JobHandle { get; }
+        /// <summary>
+        ///     The <see cref="IJob"/>.
+        /// </summary>
         public IJob? Job { get; }
+        
+        /// <summary>
+        ///     The <see cref="JobHandle"/>.
+        /// </summary>
+        public JobHandle JobHandle { get; }
 
-        public JobId? DependencyID { get; }
+        /// <summary>
+        ///     A dependency to another <see cref="JobId"/>.
+        /// </summary>
+        public JobId? DependencyId { get; }
 
+        /// <summary>
+        ///     More dependencies to multiple <see cref="JobHandle"/>s.
+        /// </summary>
         public JobHandle[]? Dependencies { get; } = null;
     }
 
@@ -110,9 +123,9 @@ public class JobScheduler : IDisposable
                 }
 
                 // check single dependency
-                if (jobMeta.DependencyID != null)
+                if (jobMeta.DependencyId != null)
                 {
-                    Complete(jobMeta.DependencyID.Value);
+                    Complete(jobMeta.DependencyId.Value);
                 }
 
                 // it might be null if this is a job generated with CombineDependencies
@@ -149,7 +162,10 @@ public class JobScheduler : IDisposable
     /// <exception cref="InvalidOperationException"></exception>
     private JobHandle Schedule(IJob? job, JobHandle? dependency = null, JobHandle[]? dependencies = null)
     {
-        if (!IsMainThread()) throw new InvalidOperationException($"Can only call {nameof(Schedule)} from the thread that spawned the {nameof(JobScheduler)}!");
+        if (!IsMainThread())
+        {
+            throw new InvalidOperationException($"Can only call {nameof(Schedule)} from the thread that spawned the {nameof(JobScheduler)}!");
+        }
 
         JobId jobId;
         lock (JobPool)
@@ -178,7 +194,7 @@ public class JobScheduler : IDisposable
     /// <returns>Its <see cref="JobHandle"/>.</returns>
     public JobHandle Schedule(IJob job, JobHandle? dependency = null)
     {
-        if (dependency is not null) CheckDependency(dependency.Value);
+        if (dependency is not null) CheckForSchedulerEquality(dependency.Value);
         return Schedule(job, dependency, null);
     }
 
@@ -195,16 +211,22 @@ public class JobScheduler : IDisposable
     {
         foreach (var dependency in dependencies)
         {
-            CheckDependency(dependency);
+            CheckForSchedulerEquality(dependency);
         }
         return Schedule(null, null, dependencies);
     }
     
-    
-    private void CheckDependency(JobHandle dependency)
+    /// <summary>
+    ///     Checks if the passed <see cref="JobHandle"/> equals this <see cref="JobScheduler"/>.
+    /// </summary>
+    /// <param name="dependency">The <see cref="JobHandle"/>.</param>
+    /// <exception cref="InvalidOperationException">Is thrown when the passed handle has a different scheduler.</exception>
+    private void CheckForSchedulerEquality(JobHandle dependency)
     {
         if (!ReferenceEquals(dependency.Scheduler, this))
+        {
             throw new InvalidOperationException($"Job dependency was scheduled with a different {nameof(JobScheduler)}!");
+        }
     }
 
     /// <summary>
@@ -213,7 +235,10 @@ public class JobScheduler : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Flush()
     {
-        if (!IsMainThread()) throw new InvalidOperationException($"Can only call {nameof(Flush)} from the thread that spawned the {nameof(JobScheduler)}!");
+        if (!IsMainThread())
+        {
+            throw new InvalidOperationException($"Can only call {nameof(Flush)} from the thread that spawned the {nameof(JobScheduler)}!");
+        }
 
         // we only lock in debug mode for strict flushed-jobs checking within Complete()
 #if DEBUG
@@ -245,7 +270,6 @@ public class JobScheduler : IDisposable
     internal void Complete(JobId jobID)
     {
         CheckIfJobIsFlushed(jobID);
-
         ManualResetEvent handle;
 
         lock (JobPool)
@@ -287,7 +311,11 @@ public class JobScheduler : IDisposable
     /// </summary>
     public void Dispose()
     {
-        if (!IsMainThread()) throw new InvalidOperationException($"Can only call {nameof(Dispose)} from the thread that spawned the {nameof(JobScheduler)}!");
+        if (!IsMainThread())
+        {
+            throw new InvalidOperationException($"Can only call {nameof(Dispose)} from the thread that spawned the {nameof(JobScheduler)}!");
+        }
+        
         // notify all threads to cancel
         CancellationTokenSource.Cancel(false);
         // we only lock in debug mode for strict flushed-jobs checking within Complete()

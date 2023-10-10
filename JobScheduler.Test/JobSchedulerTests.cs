@@ -43,6 +43,7 @@ internal class JobSchedulerTests : SchedulerTestFixture
         }
     }
 
+#if DEBUG
     [Test]
     public void CannotAwaitUnflushedHandle()
     {
@@ -50,6 +51,7 @@ internal class JobSchedulerTests : SchedulerTestFixture
         var handle = Scheduler.Schedule(job);
         Assert.That(handle.Complete, Throws.InvalidOperationException);
     }
+#endif
 
 
     [Test]
