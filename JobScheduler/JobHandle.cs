@@ -3,32 +3,61 @@ using System.Runtime.CompilerServices;
 namespace JobScheduler;
 
 /// <summary>
-/// Uniquely identifies a particular run Job
+///     The <see cref="JobId"/> struct
+///     uniquely identifies a particular run job.
 /// </summary>
-internal readonly record struct JobID
+internal record struct JobId
 {
-    public int ID { get; }
-    public int Version { get; }
-    public JobID(int id, int version)
+    /// <summary>
+    ///     Creates an instance of the <see cref="JobId"/>.
+    /// </summary>
+    /// <param name="id">Its id.</param>
+    /// <param name="version">Its version.</param>
+    public JobId(int id, int version)
     {
-        ID = id;
+        Id = id;
         Version = version;
     }
+    
+    /// <summary>
+    ///     The id of the job.
+    /// </summary>
+    public int Id { get; }
+    
+    /// <summary>
+    ///     Its version.
+    /// <remarks>Since each <see cref="JobId"/> is being recycled, it has this version that gets incremented each time it was recycled.</remarks>
+    /// </summary>
+    public int Version { get; internal set; }
 }
 
 /// <summary>
-/// Used to control and await a scheduled <see cref="IJob"/>.
+///     The <see cref="JobHandle"/> struct
+///     is used to control and await a scheduled <see cref="IJob"/>.
 /// </summary>
 public readonly struct JobHandle
 {
-    internal JobScheduler Scheduler { get; }
-    internal JobID JobID { get; }
 
-    internal JobHandle(JobScheduler scheduler, JobID id)
+    /// <summary>
+    ///     Creates a new <see cref="JobHandle"/> instance.
+    /// </summary>
+    /// <param name="scheduler">The <see cref="JobScheduler"/>.</param>
+    /// <param name="id">Its <see cref="JobId"/>.</param>
+    internal JobHandle(JobScheduler scheduler, JobId id)
     {
-        JobID = id;
+        JobId = id;
         Scheduler = scheduler;
     }
+    
+    /// <summary>
+    ///     The <see cref="JobScheduler"/> used by this scheduled job.
+    /// </summary>
+    internal JobScheduler Scheduler { get; }
+    
+    /// <summary>
+    ///     The <see cref="JobId"/> used by this scheduled job.
+    /// </summary>
+    internal JobId JobId { get; }
 
     /// <summary>
     /// Waits for the <see cref="JobHandle"/> to complete.
@@ -36,7 +65,7 @@ public readonly struct JobHandle
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Complete()
     {
-        Scheduler.Complete(JobID);
+        Scheduler.Complete(JobId);
     }
 
     /// <summary>

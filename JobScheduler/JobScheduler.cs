@@ -5,7 +5,7 @@ using System.Runtime.CompilerServices;
 namespace JobScheduler;
 
 /// <summary>
-/// A <see cref="JobScheduler"/> schedules and processes <see cref="IJob"/>s asynchronously. Better-suited for larger jobs due to its underlying events. 
+///     A <see cref="JobScheduler"/> schedules and processes <see cref="IJob"/>s asynchronously. Better-suited for larger jobs due to its underlying events. 
 /// </summary>
 public class JobScheduler : IDisposable
 {
@@ -21,11 +21,11 @@ public class JobScheduler : IDisposable
     internal int ThreadsActive => _threadsActive;
 
     /// <summary>
-    /// Pairs a <see cref="JobHandle"/> with its <see cref="IJob"/>
+    ///     Pairs a <see cref="JobHandle"/> with its <see cref="IJob"/> and other important meta-data. 
     /// </summary>
     private readonly struct JobMeta
     {
-        public JobMeta(in JobHandle jobHandle, IJob? job, JobID? dependencyID, JobHandle[]? combinedDependencies)
+        public JobMeta(in JobHandle jobHandle, IJob? job, JobId? dependencyID, JobHandle[]? combinedDependencies)
         {
             JobHandle = jobHandle;
             Job = job;
@@ -39,10 +39,9 @@ public class JobScheduler : IDisposable
         public JobHandle JobHandle { get; }
         public IJob? Job { get; }
 
-        public JobID? DependencyID { get; }
+        public JobId? DependencyID { get; }
 
         public JobHandle[]? Dependencies { get; } = null;
-
     }
 
     /// <summary>
@@ -66,6 +65,22 @@ public class JobScheduler : IDisposable
             thread.Start();
         }
     }
+    
+    // Tracks the overall state of all threads; when canceled in Dispose, all child threads are exited
+    private CancellationTokenSource CancellationTokenSource { get; } = new();
+
+    // Informs child threads that they should check the queue for more jobs
+    private ManualResetEvent CheckQueueEvent { get; } = new(false);
+
+    // Jobs scheduled by the client, but not yet flushed to the threads
+    private List<JobMeta> QueuedJobs { get; } = new();
+
+    // Jobs flushed and waiting to be picked up by worker threads
+    private ConcurrentQueue<JobMeta> Jobs { get; } = new();
+
+    // Tracks each job from scheduling to completion; when they complete, however, their data is removed from the pool and recycled.
+    // Note that we have to lock this, and can't use a ReaderWriterLock/ReaderWriterLockSlim because those allocate.
+    private JobPool JobPool { get; } = new();
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private bool IsMainThread() => Thread.CurrentThread.ManagedThreadId == MainThreadID;
@@ -105,10 +120,10 @@ public class JobScheduler : IDisposable
 
                 // the purpose of this lock is to ensure that the Complete method always subscribes and listens to an existant signal.
                 ManualResetEvent? handle;
-                lock (JobInfoPool)
+                lock (JobPool)
                 {
                     // remove the job from circulation
-                    handle = JobInfoPool.MarkComplete(jobMeta.JobHandle.JobID);
+                    handle = JobPool.MarkComplete(jobMeta.JobHandle.JobId);
                 }
                 // If JobScheduler.Complete was called on this job by a different thread, it told the job pool with Subscribe that we should ping,
                 // and that Complete would handle recycling. We notify the event here.
@@ -124,19 +139,26 @@ public class JobScheduler : IDisposable
         }
     }
 
+    /// <summary>
+    ///     Schedules a <see cref="IJob"/> and returns its <see cref="JobHandle"/>.
+    /// </summary>
+    /// <param name="job">The <see cref="IJob"/>.</param>
+    /// <param name="dependency">The <see cref="JobHandle"/>-Dependency.</param>
+    /// <param name="dependencies">A list of additional <see cref="JobHandle"/>-Dependencies.</param>
+    /// <returns>A <see cref="JobHandle"/>.</returns>
+    /// <exception cref="InvalidOperationException"></exception>
     private JobHandle Schedule(IJob? job, JobHandle? dependency = null, JobHandle[]? dependencies = null)
     {
         if (!IsMainThread()) throw new InvalidOperationException($"Can only call {nameof(Schedule)} from the thread that spawned the {nameof(JobScheduler)}!");
 
-        JobID jobID;
-        lock (JobInfoPool)
+        JobId jobId;
+        lock (JobPool)
         {
-            jobID = JobInfoPool.Schedule();
+            jobId = JobPool.Schedule();
         }
 
-        var handle = new JobHandle(this, jobID);
-
-        var jobMeta = new JobMeta(in handle, job, dependency?.JobID ?? null, dependencies);
+        var handle = new JobHandle(this, jobId);
+        var jobMeta = new JobMeta(in handle, job, dependency?.JobId ?? null, dependencies);
 
         // we only lock in debug mode for strict flushed-jobs checking within Complete()
 #if DEBUG
@@ -162,7 +184,7 @@ public class JobScheduler : IDisposable
 
 
     /// <summary>
-    /// Combine multiple dependencies into a single <see cref="JobHandle"/> which is scheduled.
+    ///     Combine multiple dependencies into a single <see cref="JobHandle"/> which is scheduled.
     /// </summary>
     /// <remarks>The user must transfer ownership of this array to the scheduler, up until after <see cref="Complete"/> is
     /// called on this task (or one of its dependants). If the data is modified, the dependency system will break.</remarks>
@@ -177,6 +199,8 @@ public class JobScheduler : IDisposable
         }
         return Schedule(null, null, dependencies);
     }
+    
+    
     private void CheckDependency(JobHandle dependency)
     {
         if (!ReferenceEquals(dependency.Scheduler, this))
@@ -218,60 +242,45 @@ public class JobScheduler : IDisposable
     /// </summary>
     /// <param name="jobID"></param>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal void Complete(JobID jobID)
+    internal void Complete(JobId jobID)
     {
         CheckIfJobIsFlushed(jobID);
 
         ManualResetEvent handle;
 
-        lock (JobInfoPool)
+        lock (JobPool)
         {
             // if we're already done with this job; we don't care about signals.
-            if (JobInfoPool.IsComplete(jobID)) return;
+            if (JobPool.IsComplete(jobID)) return;
 
             // increments a subscription counter. This ensures that the job that completes this will ping the handle and won't dispose it yet.
             // If we didn't have this, there would be a race condition between multiple threads which wait for a job's completion.
-            handle = JobInfoPool.SubscribeToHandle(jobID);
+            handle = JobPool.AwaitJob(jobID);
         }
 
         handle.WaitOne();
 
-        lock (JobInfoPool)
+        lock (JobPool)
         {
             // Return to pool. Ensures that nobody else is subscribed first, so this will always be the last person to have subscribed to a handle.
             // Once the last one of these returns, we can recycle the handle and the jobID
-            JobInfoPool.ReturnHandle(jobID);
+            JobPool.SetJob(jobID);
         }
     }
 
     [Conditional("DEBUG")]
-    private void CheckIfJobIsFlushed(JobID jobID)
+    private void CheckIfJobIsFlushed(JobId jobID)
     {
         lock (QueuedJobs)
         {
             foreach (var job in QueuedJobs)
             {
-                if (job.JobHandle.JobID == jobID)
+                if (job.JobHandle.JobId == jobID)
                     throw new InvalidOperationException($"Cannot wait on a job that is not flushed to the workers! Call {nameof(Flush)} first.");
             }
         }
     }
 
-    // Tracks the overall state of all threads; when canceled in Dispose, all child threads are exited
-    private CancellationTokenSource CancellationTokenSource { get; } = new();
-
-    // Informs child threads that they should check the queue for more jobs
-    private ManualResetEvent CheckQueueEvent { get; } = new(false);
-
-    // Jobs scheduled by the client, but not yet flushed to the threads
-    private List<JobMeta> QueuedJobs { get; } = new();
-
-    // Jobs flushed and waiting to be picked up by worker threads
-    private ConcurrentQueue<JobMeta> Jobs { get; } = new();
-
-    // Tracks each job from scheduling to completion; when they complete, however, their data is removed from the pool and recycled.
-    // Note that we have to lock this, and can't use a ReaderWriterLock/ReaderWriterLockSlim because those allocate.
-    private JobInfoPool JobInfoPool { get; } = new();
 
     /// <summary>
     /// Disposes all internals and notifies all threads to cancel.

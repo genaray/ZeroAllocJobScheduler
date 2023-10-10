@@ -1,7 +1,8 @@
 ﻿namespace JobScheduler;
 
 /// <summary>
-/// Represents a job which can outsource tasks to the <see cref="JobScheduler"/>.
+///     The <see cref="IJob"/> interface.
+///     represents a job which can outsource tasks to the <see cref="JobScheduler"/>.
 /// </summary>
 public interface IJob
 {
