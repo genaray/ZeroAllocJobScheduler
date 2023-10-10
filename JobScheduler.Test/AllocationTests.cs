@@ -1,17 +1,15 @@
 ﻿using JobScheduler.Test.Utils;
 using JobScheduler.Test.Utils.CustomConstraints;
 using System.Diagnostics.CodeAnalysis;
+using System.Reflection.Metadata;
 
 namespace JobScheduler.Test;
 
-
-[TestFixture]
 [SuppressMessage("Assertion", "NUnit2045:Use Assert.Multiple",
     Justification = "Multiple asserts are not appropriate as later code")]
 internal class AllocationTests : SchedulerTestFixture
 {
-    // Note: in the tests do NOT use job.Schedule(); it is not threadsafe since it uses the singleton.
-    // Use Scheduler.Schedule() from the fixture.
+    public AllocationTests(int threads) : base(threads) { }
 
     private class TestClass
     {
@@ -46,11 +44,14 @@ internal class AllocationTests : SchedulerTestFixture
     }
 
     [Test]
-    public void RegularJobDoesNotAllocate()
+    [TestCase(true)]
+    [TestCase(false)]
+    public void RegularJobDoesNotAllocate(bool manuallyComplete)
     {
-        var job = new SleepJob(100); // allocates
+        var job = new SleepJob(2); // allocates
 
         JobHandle handle = default;
+        JobHandle handle2 = default;
 
         // we expect the very first job to allocate
         Assert.That(() =>
@@ -58,42 +59,12 @@ internal class AllocationTests : SchedulerTestFixture
             handle = Scheduler.Schedule(job);
         }, Is.AllocatingMemory());
 
-        Assert.That(() =>
-        {
-            Scheduler.Flush();
-            handle.Complete();
-            handle.Return();
-
-            var handle2 = Scheduler.Schedule(job);
-            Scheduler.Flush();
-            handle2.Complete();
-            handle2.Return();
-        }, Is.Not.AllocatingMemory());
-    }
-
-    [Test]
-    [NonParallelizable]
-    public void AutoPooledJobDoesNotAllocate()
-    {
-        var job = new SleepJob(5); // allocates
-        // we expect the very first job to allocate
-        Assert.That(() =>
-        {
-            Scheduler.Schedule(job, true);
-        }, Is.AllocatingMemory());
-
-        // the rest of everything should not allocate
-        Assert.That(() =>
-        {
-            Scheduler.Flush();
-            // ensure it's disposed
-            Thread.Sleep(100);
-
-            // try another one
-            Scheduler.Schedule(job, true);
-            Scheduler.Flush();
-            Thread.Sleep(100);
-        }, Is.Not.AllocatingMemory());
+        Assert.That(() => { Scheduler.Flush(); }, Is.Not.AllocatingMemory());
+        if (manuallyComplete) Assert.That(() => { handle.Complete(); }, Is.Not.AllocatingMemory());
+        else Thread.Sleep(100);
+        Assert.That(() => { handle2 = Scheduler.Schedule(job); }, Is.Not.AllocatingMemory());
+        Assert.That(() => { Scheduler.Flush(); }, Is.Not.AllocatingMemory());
+        Assert.That(() => { handle2.Complete(); }, Is.Not.AllocatingMemory());
     }
 
     [Test]
@@ -108,21 +79,60 @@ internal class AllocationTests : SchedulerTestFixture
         Assert.That(() => { handle2 = Scheduler.Schedule(job); }, Is.AllocatingMemory());
 
         // the rest of everything should not allocate
-        Assert.That(() =>
-        {
-            Scheduler.Flush();
-            handle1.Complete();
-            handle2.Complete();
-            handle1.Return();
-            handle2.Return();
+        Assert.That(() => { Scheduler.Flush();  }, Is.Not.AllocatingMemory());
+        Assert.That(() => { handle1.Complete(); }, Is.Not.AllocatingMemory());
+        Assert.That(() => { handle2.Complete(); }, Is.Not.AllocatingMemory());
+        Assert.That(() => { handle1 = Scheduler.Schedule(job); }, Is.Not.AllocatingMemory());
+        Assert.That(() => { handle2 = Scheduler.Schedule(job); }, Is.Not.AllocatingMemory());
+        Assert.That(() => { Scheduler.Flush(); }, Is.Not.AllocatingMemory());
+        Assert.That(() => { handle2.Complete(); }, Is.Not.AllocatingMemory());
+        Assert.That(() => { handle1.Complete(); }, Is.Not.AllocatingMemory());
+    }
 
-            handle1 = Scheduler.Schedule(job);
-            handle2 = Scheduler.Schedule(job);
-            Scheduler.Flush();
-            handle1.Complete();
-            handle2.Complete();
-            handle1.Return();
-            handle2.Return();
-        }, Is.Not.AllocatingMemory());
+    [Test]
+    public void DependentJobsDoNotAllocate()
+    {
+        var job = new SleepJob(5); // allocates
+
+        JobHandle handle1 = default;
+        JobHandle handle2 = default;
+        // we expect the first 2 jobs to allocate
+        Assert.That(() => { handle1 = Scheduler.Schedule(job); }, Is.AllocatingMemory());
+        Assert.That(() => { handle2 = Scheduler.Schedule(job, handle1); }, Is.AllocatingMemory());
+
+        // the rest of everything should not allocate
+        Assert.That(() => { Scheduler.Flush(); }, Is.Not.AllocatingMemory());
+        Assert.That(() => { handle1.Complete(); }, Is.Not.AllocatingMemory());
+        Assert.That(() => { handle2.Complete(); }, Is.Not.AllocatingMemory());
+        Assert.That(() => { handle1 = Scheduler.Schedule(job); }, Is.Not.AllocatingMemory());
+        Assert.That(() => { handle2 = Scheduler.Schedule(job, handle1); }, Is.Not.AllocatingMemory());
+        Assert.That(() => { Scheduler.Flush(); }, Is.Not.AllocatingMemory());
+        Assert.That(() => { handle2.Complete(); }, Is.Not.AllocatingMemory());
+        Assert.That(() => { handle1.Complete(); }, Is.Not.AllocatingMemory());
+    }
+
+
+    [Test]
+    public void CombinedJobsDoNotAllocate()
+    {
+        var job = new SleepJob(5); // allocates
+        var handles = new JobHandle[2];
+        JobHandle combined = default;
+
+        // we expect the first 3 jobs to allocate
+        Assert.That(() => { handles[0] = Scheduler.Schedule(job); }, Is.AllocatingMemory());
+        Assert.That(() => { handles[1] = Scheduler.Schedule(job); }, Is.AllocatingMemory());
+        Assert.That(() => { combined = Scheduler.CombineDependencies(handles); }, Is.AllocatingMemory());
+
+        // the rest of everything should not allocate
+        Assert.That(() => { Scheduler.Flush(); }, Is.Not.AllocatingMemory());
+        Assert.That(() => { combined.Complete(); }, Is.Not.AllocatingMemory());
+        Assert.That(() => { handles[0] = Scheduler.Schedule(job); }, Is.Not.AllocatingMemory());
+        Assert.That(() => { handles[1] = Scheduler.Schedule(job); }, Is.Not.AllocatingMemory());
+        Assert.That(() => { combined = Scheduler.CombineDependencies(handles); }, Is.Not.AllocatingMemory());
+        Assert.That(() => { Scheduler.Flush(); }, Is.Not.AllocatingMemory());
+        Assert.That(() => { combined.Complete(); }, Is.Not.AllocatingMemory());
+        Assert.That(() => { handles[0].Complete(); }, Is.Not.AllocatingMemory());
+        Assert.That(() => { handles[1].Complete(); }, Is.Not.AllocatingMemory());
     }
 }

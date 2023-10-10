@@ -1,4 +1,5 @@
 ﻿using NUnit.Framework.Constraints;
+using System.Runtime;
 
 namespace JobScheduler.Test.Utils.CustomConstraints;
 
@@ -7,12 +8,24 @@ namespace JobScheduler.Test.Utils.CustomConstraints;
 /// </summary>
 internal class AllocatingMemoryConstraint : Constraint
 {
+    static readonly object _gcLock = new();
     public AllocatingMemoryConstraint() { }
     public override ConstraintResult ApplyTo<TActual>(TActual actual)
     {
-        var heap = GC.GetAllocatedBytesForCurrentThread();
-        (actual as TestDelegate ?? throw new InvalidOperationException($"Value must be a {nameof(TestDelegate)}!")).Invoke();
-        if (heap != GC.GetAllocatedBytesForCurrentThread())
+        var code = actual as TestDelegate ?? throw new InvalidOperationException($"Value must be a {nameof(TestDelegate)}!");
+        bool allocated;
+        // prevent threads from enabling the GC
+        lock (_gcLock)
+        {
+            // trigger a  manual collection; reduces the possibility that a different
+            // test-thread allocates and triggers a GC to run on the main thread. that still
+            // might happen though, no easy way to prevent that.
+            GC.Collect();
+            var heap = GC.GetAllocatedBytesForCurrentThread();
+            code.Invoke();
+            allocated = heap != GC.GetAllocatedBytesForCurrentThread();
+        }
+        if (allocated)
         {
             // we DID allocate memory! So return true
             return new ConstraintResult(this, actual, true);
