@@ -55,10 +55,6 @@ public class ManyJobsBenchmark
             {
                 Handles[i].Complete();
             }
-            for (int i = 0; i < ConcurrentJobs; i++)
-            {
-                Handles[i].Return();
-            }
         }
     }
 
@@ -66,27 +62,6 @@ public class ManyJobsBenchmark
     public void Cleanup()
     {
         Scheduler.Dispose();
-    }
-
-    [Benchmark]
-    public void BenchmarkParallel()
-    {
-        for (int w = 0; w < Waves; w++)
-        {
-            for (int i = 0; i < ConcurrentJobs; i++)
-            {
-                Handles[i] = Scheduler.Schedule(Empty);
-            }
-            Scheduler.Flush();
-            for (int i = 0; i < ConcurrentJobs; i++)
-            {
-                Handles[i].Complete();
-            }
-            for (int i = 0; i < ConcurrentJobs; i++)
-            {
-                Handles[i].Return();
-            }
-        }
     }
 
     [Benchmark]
@@ -99,7 +74,24 @@ public class ManyJobsBenchmark
                 Handles[i] = Scheduler.Schedule(Empty);
                 Scheduler.Flush();
                 Handles[i].Complete();
-                Handles[i].Return();
+            }
+        }
+    }
+
+    [Benchmark]
+    public void BenchmarkDependancies()
+    {
+        for (int w = 0; w < Waves; w++)
+        {
+            for (int i = 0; i < ConcurrentJobs; i++)
+            {
+                if (i == 0) Handles[i] = Scheduler.Schedule(Empty);
+                else Handles[i] = Scheduler.Schedule(Empty, Handles[i - 1]);
+            }
+            Scheduler.Flush();
+            for (int i = 0; i < ConcurrentJobs; i++)
+            {
+                Handles[i].Complete();
             }
         }
     }
