@@ -64,18 +64,7 @@ internal class JobPool
     /// <summary>
     /// The amount of concurrent jobs currently in the <see cref="JobPool"/>.
     /// </summary>
-    public int JobCount
-    {
-        get
-        {
-            int jobs = 0;
-            foreach (var job in _jobs)
-            {
-                if (job.HasValue) jobs++;
-            }
-            return jobs;
-        }
-    }
+    public int JobCount { get; private set; }
 
     public JobPool(int capacity)
     {
@@ -113,6 +102,7 @@ internal class JobPool
         }
         
         _jobs[id.Id] = job;
+        JobCount++;
         return id;
     }
     
@@ -127,6 +117,7 @@ internal class JobPool
 
         var job = _jobs[jobId.Id]!.Value;
         _jobs[jobId.Id] = null;
+        JobCount--;
         jobId.Version++;
         
         _recycledIds.Enqueue(jobId);
