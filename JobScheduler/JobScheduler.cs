@@ -94,11 +94,6 @@ public class JobScheduler : IDisposable
         public JobHandle[]? Dependencies { get; } = null;
     }
 
-    /// <summary>
-    /// Tracks which thread the JobScheduler was constructed on
-    /// </summary>
-    private int MainThreadID { get; }
-
     // Tracks how many threads are active; interlocked
     private int _threadsActive = 0;
 
@@ -108,21 +103,6 @@ public class JobScheduler : IDisposable
     private readonly bool _strictAllocationMode;
     private readonly int _maxConcurrentJobs;
 
-    // Tracks the overall state of all threads; when canceled in Dispose, all child threads are exited
-    private CancellationTokenSource CancellationTokenSource { get; } = new();
-
-    // Informs child threads that they should check the queue for more jobs
-    private ManualResetEvent CheckQueueEvent { get; } = new(false);
-
-    // Jobs scheduled by the client, but not yet flushed to the threads
-    private List<JobMeta> QueuedJobs { get; }
-
-    // Jobs flushed and waiting to be picked up by worker threads
-    private ConcurrentQueue<JobMeta> Jobs { get; }
-
-    // Tracks each job from scheduling to completion; when they complete, however, their data is removed from the pool and recycled.
-    // Note that we have to lock this, and can't use a ReaderWriterLock/ReaderWriterLockSlim because those allocate.
-    private JobPool JobPool { get; }
 
     /// <summary>
     /// Creates an instance of the <see cref="JobScheduler"/>
@@ -164,10 +144,47 @@ public class JobScheduler : IDisposable
         }
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private bool IsMainThread() => Thread.CurrentThread.ManagedThreadId == MainThreadID;
+    /// <summary>
+    /// Tracks which thread the JobScheduler was constructed on
+    /// </summary>
+    private int MainThreadID { get; }
 
-    // The main loop for each child thread
+    /// <summary>
+    /// Tracks the overall state of all threads; when canceled in Dispose, all child threads are exited
+    /// </summary>
+    private CancellationTokenSource CancellationTokenSource { get; } = new();
+
+    /// <summary>
+    /// Informs child threads that they should check the queue for more jobs
+    /// </summary>
+    private ManualResetEvent CheckQueueEvent { get; } = new(false);
+
+    /// <summary>
+    /// Jobs scheduled by the client, but not yet flushed to the threads
+    /// </summary>
+    private List<JobMeta> QueuedJobs { get; }
+
+    /// <summary>
+    /// Jobs flushed and waiting to be picked up by worker threads
+    /// </summary>
+    private ConcurrentQueue<JobMeta> Jobs { get; }
+
+    /// <summary>
+    /// Tracks each job from scheduling to completion; when they complete, however, their data is removed from the pool and recycled.
+    /// Note that we have to lock this, and can't use a ReaderWriterLock/ReaderWriterLockSlim because those allocate.
+    /// </summary>
+    private JobPool JobPool { get; }
+
+
+    /// <summary>
+    /// Returns whether this is the main thread the scheduler was created on
+    /// </summary>
+    private bool IsMainThread => Thread.CurrentThread.ManagedThreadId == MainThreadID;
+
+    /// <summary>
+    /// The main loop for each child thread
+    /// </summary>
+    /// <param name="token"></param>
     private void Loop(CancellationToken token)
     {
         Interlocked.Increment(ref _threadsActive);
@@ -232,7 +249,7 @@ public class JobScheduler : IDisposable
     /// <exception cref="MaximumConcurrentJobCountExceededException">If the maximum amount of concurrent jobs is at maximum, and strict mode is enabled.</exception>
     private JobHandle Schedule(IJob? job, JobHandle? dependency = null, JobHandle[]? dependencies = null)
     {
-        if (!IsMainThread())
+        if (!IsMainThread)
         {
             throw new InvalidOperationException($"Can only call {nameof(Schedule)} from the thread that spawned the {nameof(JobScheduler)}!");
         }
@@ -313,7 +330,7 @@ public class JobScheduler : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Flush()
     {
-        if (!IsMainThread())
+        if (!IsMainThread)
         {
             throw new InvalidOperationException($"Can only call {nameof(Flush)} from the thread that spawned the {nameof(JobScheduler)}!");
         }
@@ -389,7 +406,7 @@ public class JobScheduler : IDisposable
     /// </summary>
     public void Dispose()
     {
-        if (!IsMainThread())
+        if (!IsMainThread)
         {
             throw new InvalidOperationException($"Can only call {nameof(Dispose)} from the thread that spawned the {nameof(JobScheduler)}!");
         }
