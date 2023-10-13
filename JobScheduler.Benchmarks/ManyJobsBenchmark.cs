@@ -14,20 +14,20 @@ public class ManyJobsBenchmark
     [Params(0)] public int Threads = 0;
 
     /// <summary>
-    /// Whether the benchmark should do a dry run before starting the benchmark, to fill up any data structures that might allocate
-    /// on frame 1.
-    /// </summary>
-    [Params(true)] public bool ExcludeFirstWave;
-
-    /// <summary>
     /// The maximum amount of concurrent jobs active at one time.
     /// </summary>
     [Params(32, 128)] public int ConcurrentJobs;
 
     /// <summary>
+    /// The <see cref="JobScheduler.Config.MaxExpectedConcurrentJobs"/> value. If this is less than <see cref="ConcurrentJobs"/> on a given benchmark,
+    /// the benchmark is expected to allocate.
+    /// </summary>
+    [Params(32, 2048)] public int MaxConcurrentJobs;
+
+    /// <summary>
     /// How many sequences of <see cref="ConcurrentJobs"/> to run.
     /// </summary>
-    [Params(10240)] public int Waves;
+    [Params(1024)] public int Waves;
 
     JobHandle[] Handles = null!;
     private class EmptyJob : IJob
@@ -40,22 +40,15 @@ public class ManyJobsBenchmark
     [IterationSetup]
     public void Setup()
     {
-        Scheduler = new(nameof(ManyJobsBenchmark), Threads);
-        Handles = new JobHandle[ConcurrentJobs];
-
-        if (ExcludeFirstWave)
+        var config = new JobScheduler.Config
         {
-            Waves--;
-            for (int i = 0; i < ConcurrentJobs; i++)
-            {
-                Handles[i] = Scheduler.Schedule(Empty);
-            }
-            Scheduler.Flush();
-            for (int i = 0; i < ConcurrentJobs; i++)
-            {
-                Handles[i].Complete();
-            }
-        }
+            MaxExpectedConcurrentJobs = MaxConcurrentJobs,
+            StrictAllocationMode = false,
+            ThreadPrefixName = nameof(ManyJobsBenchmark),
+            ThreadCount = Threads
+        };
+        Scheduler = new(config);
+        Handles = new JobHandle[ConcurrentJobs];
     }
 
     [IterationCleanup]

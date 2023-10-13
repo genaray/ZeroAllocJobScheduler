@@ -10,15 +10,52 @@ namespace JobScheduler;
 public class JobScheduler : IDisposable
 {
     /// <summary>
-    /// Tracks which thread the JobScheduler was constructed on
+    /// Contains configuration settings for <see cref="JobScheduler"/>.
     /// </summary>
-    private int MainThreadID { get; }
+    public struct Config
+    {
+        /// <summary>
+        /// Create a new <see cref="Config"/> for a <see cref="JobScheduler"/> with all default settings.
+        /// </summary>
+        public Config() { }
 
-    // Tracks how many threads are active; interlocked
-    private int _threadsActive = 0;
+        /// <summary>
+        /// Defines the maximum expected number of concurrent jobs. Increasing this number will allow more jobs to be scheduled
+        /// without spontaneous allocation, but will increase total memory consumption and decrease performance.
+        /// If unset, the default is <c>32</c>
+        /// </summary>
+        public int MaxExpectedConcurrentJobs { get; set; } = 32;
 
-    // internally visible for testing
-    internal int ThreadsActive => _threadsActive;
+        /// <summary>
+        /// Whether to use Strict Allocation Mode for this <see cref="JobScheduler"/>. If an allocation might occur, the JobScheduler
+        /// will throw a <see cref="MaximumConcurrentJobCountExceededException"/>.
+        /// Not recommended for production environments (spontaneous allocation is probably usually better than crashing the program).
+        /// </summary>
+        public bool StrictAllocationMode { get; set; } = false;
+
+        /// <summary>
+        /// The process name to use for spawned child threads. By default, set to the current domain's <see cref="AppDomain.FriendlyName"/>.
+        /// Thread will be named "prefix0" for the first thread, "prefix1" for the second thread, etc.
+        /// </summary>
+        public string ThreadPrefixName { get; set; } = AppDomain.CurrentDomain.FriendlyName;
+
+        /// <summary>
+        /// The amount of worker threads to use. By default, set to <see cref="Environment.ProcessorCount"/>, the amount of hardware processors 
+        /// available on the system.
+        /// </summary>
+        public int ThreadCount { get; set; } = Environment.ProcessorCount;
+    }
+
+    /// <summary>
+    /// Thrown when <see cref="Config.StrictAllocationMode"/> is enabled and the <see cref="JobScheduler"/> goes over its <see cref="Config.MaxExpectedConcurrentJobs"/>.
+    /// </summary>
+    public class MaximumConcurrentJobCountExceededException : Exception
+    {
+        internal MaximumConcurrentJobCountExceededException() : base($"{nameof(JobScheduler)} has gone over its {nameof(Config.MaxExpectedConcurrentJobs)} value! " +
+            $"Increase that value or disable {nameof(Config.StrictAllocationMode)} to allow spontaneous allocations.")
+        {
+        }
+    }
 
     /// <summary>
     ///     Pairs a <see cref="JobHandle"/> with its <see cref="IJob"/> and other important meta-data. 
@@ -58,27 +95,19 @@ public class JobScheduler : IDisposable
     }
 
     /// <summary>
-    /// Creates an instance of the <see cref="JobScheduler"/>
+    /// Tracks which thread the JobScheduler was constructed on
     /// </summary>
-    /// <param name="threadPrefix">The thread prefix to use. The thread will be named "prefix0" for the first thread, "prefix1" for the second thread, etc.</param>
-    /// <param name="threads">The amount of worker threads to use. If zero the scheduler will use the amount of processors available.</param>
-    public JobScheduler(string threadPrefix, int threads = 0)
-    {
-        MainThreadID = Thread.CurrentThread.ManagedThreadId;
+    private int MainThreadID { get; }
 
-        if (threads <= 0) threads = Environment.ProcessorCount;
+    // Tracks how many threads are active; interlocked
+    private int _threadsActive = 0;
 
-        // spawn all the child threads
-        for (var i = 0; i < threads; i++)
-        {
-            var thread = new Thread(() => Loop(CancellationTokenSource.Token))
-            {
-                Name = $"{threadPrefix}{i}"
-            };
-            thread.Start();
-        }
-    }
-    
+    // internally visible for testing
+    internal int ThreadsActive => _threadsActive;
+
+    private readonly bool _strictAllocationMode;
+    private readonly int _maxConcurrentJobs;
+
     // Tracks the overall state of all threads; when canceled in Dispose, all child threads are exited
     private CancellationTokenSource CancellationTokenSource { get; } = new();
 
@@ -86,14 +115,54 @@ public class JobScheduler : IDisposable
     private ManualResetEvent CheckQueueEvent { get; } = new(false);
 
     // Jobs scheduled by the client, but not yet flushed to the threads
-    private List<JobMeta> QueuedJobs { get; } = new();
+    private List<JobMeta> QueuedJobs { get; }
 
     // Jobs flushed and waiting to be picked up by worker threads
-    private ConcurrentQueue<JobMeta> Jobs { get; } = new();
+    private ConcurrentQueue<JobMeta> Jobs { get; }
 
     // Tracks each job from scheduling to completion; when they complete, however, their data is removed from the pool and recycled.
     // Note that we have to lock this, and can't use a ReaderWriterLock/ReaderWriterLockSlim because those allocate.
-    private JobPool JobPool { get; } = new();
+    private JobPool JobPool { get; }
+
+    /// <summary>
+    /// Creates an instance of the <see cref="JobScheduler"/>
+    /// </summary>
+    /// <param name="settings">The <see cref="Config"/> to use for this instance of <see cref="JobScheduler"/></param>
+    public JobScheduler(in Config settings)
+    {
+        MainThreadID = Thread.CurrentThread.ManagedThreadId;
+
+        int threads = settings.ThreadCount;
+        if (threads <= 0) threads = Environment.ProcessorCount;
+
+        _strictAllocationMode = settings.StrictAllocationMode;
+        _maxConcurrentJobs = settings.MaxExpectedConcurrentJobs;
+
+        // pre-fill all of our data structures up to the concurrent job max
+        QueuedJobs = new(settings.MaxExpectedConcurrentJobs);
+        JobPool = new(settings.MaxExpectedConcurrentJobs);
+
+        // ConcurrentQueue doesn't have a segment size constructor so we have to use a hack with the IEnumerable constructor.
+        // First, we add a bunch of dummy jobs to the old queue...
+        for (int i = 0; i < settings.MaxExpectedConcurrentJobs; i++) QueuedJobs.Add(default);
+        // ... then, we initialize the ConcurrentQueue with that collection. The segment size will be set to the count.
+        // Note that this line WILL produce garbage due to IEnumerable iteration! (always boxes multiple enumerator structs)
+        Jobs = new(QueuedJobs);
+        // Then, we dequeue everything from the ConcurrentQueue. We can't Clear() because that'll nuke the segment.
+        while (!Jobs.IsEmpty) Jobs.TryDequeue(out var _);
+        // And then normally clear the normal queue we used.
+        QueuedJobs.Clear();
+
+        // spawn all the child threads
+        for (var i = 0; i < threads; i++)
+        {
+            var thread = new Thread(() => Loop(CancellationTokenSource.Token))
+            {
+                Name = $"{settings.ThreadPrefixName}{i}"
+            };
+            thread.Start();
+        }
+    }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private bool IsMainThread() => Thread.CurrentThread.ManagedThreadId == MainThreadID;
@@ -159,7 +228,8 @@ public class JobScheduler : IDisposable
     /// <param name="dependency">The <see cref="JobHandle"/>-Dependency.</param>
     /// <param name="dependencies">A list of additional <see cref="JobHandle"/>-Dependencies.</param>
     /// <returns>A <see cref="JobHandle"/>.</returns>
-    /// <exception cref="InvalidOperationException"></exception>
+    /// <exception cref="InvalidOperationException">If called on a different thread than the <see cref="JobScheduler"/> was constructed on</exception>
+    /// <exception cref="MaximumConcurrentJobCountExceededException">If the maximum amount of concurrent jobs is at maximum, and strict mode is enabled.</exception>
     private JobHandle Schedule(IJob? job, JobHandle? dependency = null, JobHandle[]? dependencies = null)
     {
         if (!IsMainThread())
@@ -170,6 +240,10 @@ public class JobScheduler : IDisposable
         JobId jobId;
         lock (JobPool)
         {
+            if (_strictAllocationMode && JobPool.JobCount >= _maxConcurrentJobs)
+            {
+                throw new MaximumConcurrentJobCountExceededException();
+            }
             jobId = JobPool.Schedule();
         }
 
@@ -192,6 +266,8 @@ public class JobScheduler : IDisposable
     /// <param name="job">The job to process</param>
     /// <param name="dependency">A job that must complete before this job can be run</param>
     /// <returns>Its <see cref="JobHandle"/>.</returns>
+    /// <exception cref="InvalidOperationException">If called on a different thread than the <see cref="JobScheduler"/> was constructed on</exception>
+    /// <exception cref="MaximumConcurrentJobCountExceededException">If the maximum amount of concurrent jobs is at maximum, and strict mode is enabled.</exception>
     public JobHandle Schedule(IJob job, JobHandle? dependency = null)
     {
         if (dependency is not null) CheckForSchedulerEquality(dependency.Value);
@@ -206,6 +282,8 @@ public class JobScheduler : IDisposable
     /// called on this task (or one of its dependants). If the data is modified, the dependency system will break.</remarks>
     /// <param name="dependencies">A list of handles to depend on.</param>
     /// <returns>The combined <see cref="JobHandle"/></returns>
+    /// <exception cref="InvalidOperationException">If called on a different thread than the <see cref="JobScheduler"/> was constructed on</exception>
+    /// <exception cref="MaximumConcurrentJobCountExceededException">If the maximum amount of concurrent jobs is at maximum, and strict mode is enabled.</exception>
     // TODO: consider doing some native allocation or cache to track these? would remove need to transfer ownership to user
     public JobHandle CombineDependencies(JobHandle[] dependencies)
     {

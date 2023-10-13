@@ -1,15 +1,28 @@
 ﻿using JobScheduler.Test.Utils;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace JobScheduler.Test;
-
+[TestFixture(0, 32)]
+[TestFixture(1, 32)]
+[TestFixture(2, 32)]
+[TestFixture(4, 32)]
+[TestFixture(8, 32)]
+[TestFixture(16, 32)]
+[TestFixture(0, 2048)]
+[TestFixture(1, 2048)]
+[TestFixture(2, 2048)]
+[TestFixture(4, 2048)]
+[TestFixture(8, 2048)]
+[TestFixture(16, 2048)]
 internal class StressTests : SchedulerTestFixture
 {
-    public StressTests(int threads) : base(threads) { }
+    public StressTests(int threads, int maxJobs) : base(threads)
+    {
+        MaxExpectedConcurrentJobs = maxJobs;
+    }
+
+    protected override bool StrictAllocationMode => false;
+
+    protected override int MaxExpectedConcurrentJobs { get; }
 
     [Test]
     [TestCase(1000, 10, true, false)]

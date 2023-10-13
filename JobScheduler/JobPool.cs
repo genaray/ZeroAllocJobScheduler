@@ -50,16 +50,41 @@ internal class JobPool
     /// <summary>
     ///     The size of the <see cref="JobPool"/>.
     /// </summary>
-    private int _size;
+    private int _nextId;
 
-    // a list indexed by job ID; we can reuse job IDs once they're complete
-    private Job[] _jobs = new Job[32];
+    // a list indexed by job ID; we can reuse job IDs once they're complete.
+    private Job?[] _jobs;
 
     // the jobIDs to reuse, as well as the last version used
-    private readonly Queue<JobId> _recycledIds = new(32);
-    
+    private readonly Queue<JobId> _recycledIds;
+
     // A pool of handles to use for everything.
-    private DefaultObjectPool<ManualResetEvent> ManualResetEventPool { get; } = new(new ManualResetEventPolicy(), 32);
+    private DefaultObjectPool<ManualResetEvent> ManualResetEventPool { get; }
+
+    /// <summary>
+    /// The amount of concurrent jobs currently in the <see cref="JobPool"/>.
+    /// </summary>
+    public int JobCount
+    {
+        get
+        {
+            int jobs = 0;
+            foreach (var job in _jobs)
+            {
+                if (job.HasValue) jobs++;
+            }
+            return jobs;
+        }
+    }
+
+    public JobPool(int capacity)
+    {
+        _jobs = new Job?[capacity];
+        _recycledIds = new(capacity);
+        ManualResetEventPool = new(new ManualResetEventPolicy(), capacity);
+
+        for (int i = 0; i < capacity; i++) ManualResetEventPool.Return(new(false));
+    }
 
     /// <summary>
     /// Create a new <see cref="Job"/> in the pool, with an optional dependency
@@ -67,21 +92,28 @@ internal class JobPool
     /// <returns>The <see cref="JobId"/> of the created job</returns>
     public JobId Schedule()
     {
-        var recycle = _recycledIds.TryDequeue(out var recycledId);
-        var recycled = recycle ? recycledId : new JobId(_size, 1);
+        JobId id;
+        if (_recycledIds.TryDequeue(out var recycledId))
+        {
+            id = recycledId;
+        }
+        else
+        {
+            id = new JobId(_nextId, 1);
+            _nextId++;
+        }
         
-        var job = new Job(recycled, ManualResetEventPool.Get());
+        var job = new Job(id, ManualResetEventPool.Get());
         job.WaitHandle.Reset(); // must reset when acquiring
 
         // Adjust array size
-        if (_jobs.Length <= recycled.Id)
+        if (_jobs.Length <= id.Id)
         {
             Array.Resize(ref _jobs, _jobs.Length * 2);    
         }
         
-        _jobs[recycled.Id] = job;
-        _size++;
-        return recycled;
+        _jobs[id.Id] = job;
+        return id;
     }
     
 
@@ -91,10 +123,10 @@ internal class JobPool
     /// <param name="jobId">Its <see cref="JobId"/>.</param>
     private void Return(JobId jobId)
     {
-        Debug.Assert(_jobs[jobId.Id]!.IsComplete);
+        Debug.Assert(_jobs[jobId.Id].HasValue && _jobs[jobId.Id]!.Value.IsComplete);
 
-        var job = _jobs[jobId.Id];
-        _jobs[jobId.Id] = new Job(new JobId(-1,-1), null);
+        var job = _jobs[jobId.Id]!.Value;
+        _jobs[jobId.Id] = null;
         jobId.Version++;
         
         _recycledIds.Enqueue(jobId);
@@ -110,7 +142,7 @@ internal class JobPool
     public ManualResetEvent AwaitJob(JobId jobId)
     {
         ValidateJobNotComplete(jobId); // ensure we're still on the right version
-        var job = _jobs[jobId.Id];
+        var job = _jobs[jobId.Id]!.Value;
 
         // increment our subscribed handles for this jobID
         // ensures that we only dispose once all callers have gotten the message
@@ -121,7 +153,7 @@ internal class JobPool
     }
     
     /// <summary>
-    ///     Sets a <see cref="Job"/>, decerases its <see cref="Job.WaitHandleSubscriptionCount"/> and moves its <see cref="Job.WaitHandle"/> back to the pool once finished.
+    ///     Sets a <see cref="Job"/>, decreases its <see cref="Job.WaitHandleSubscriptionCount"/> and moves its <see cref="Job.WaitHandle"/> back to the pool once finished.
     ///     Only valid when <see cref="AwaitJob"/> was called and the produced handle was waited for.
     /// </summary>
     /// <param name="jobId"></param>
@@ -129,7 +161,7 @@ internal class JobPool
     {
         // decrement our subscribed handles for this jobID
         // ensures that we only dispose once all callers have gotten the message
-        var job = _jobs[jobId.Id];
+        var job = _jobs[jobId.Id]!.Value;
 
         // ensure we haven't already returned it prematurely
         // ensure we're actually in a complete status now
@@ -153,7 +185,7 @@ internal class JobPool
     public ManualResetEvent? MarkComplete(JobId jobId)
     {
         ValidateJobNotComplete(jobId);
-        var job = _jobs[jobId.Id];
+        var job = _jobs[jobId.Id]!.Value;
         job.IsComplete = true;
         _jobs[jobId.Id] = job;
 
@@ -179,16 +211,16 @@ internal class JobPool
     {
         ValidateJobId(jobId);
         var job = _jobs[jobId.Id];
-        return job.JobId.Id == -1 || // if it's missing, we've completed and removed it, and its ID hasn't been reused yet
-               job.JobId.Version != jobId.Version || // if we're a different version, the jobID is long since completed and reused
-               job.IsComplete; // we're the right version, and therefore waiting on some handles to Complete(), but we are definitely complete
+        return !job.HasValue || // if it's missing, we've completed and removed it, and its ID hasn't been reused yet
+               job.Value.JobId.Version != jobId.Version || // if we're a different version, the jobID is long since completed and reused
+               job.Value.IsComplete; // we're the right version, and therefore waiting on some handles to Complete(), but we are definitely complete
     }
 
     [Conditional("DEBUG")]
     private void ValidateJobId(JobId jobId)
     {
         if (jobId.Id < 0) throw new ArgumentOutOfRangeException("Job ID not valid!");
-        if (jobId.Id >= _size) throw new ArgumentOutOfRangeException("Job ID doesn't exist yet!");
+        if (jobId.Id >= _nextId) throw new ArgumentOutOfRangeException("Job ID doesn't exist yet!");
     }
 
     [Conditional("DEBUG")]
