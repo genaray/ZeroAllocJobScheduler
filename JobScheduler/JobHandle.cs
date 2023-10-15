@@ -85,7 +85,7 @@ public readonly struct JobHandle
     /// <remarks>This is equivalent to calling <see cref="Complete()"/> on each <see cref="JobHandle"/> individually.</remarks>
     /// <param name="handles">The handles to complete.</param>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static void CompleteAll(IList<JobHandle> handles)
+    public static void CompleteAll(List<JobHandle> handles)
     {
         foreach (var handle in handles) handle.Complete();
     }

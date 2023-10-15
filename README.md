@@ -20,21 +20,35 @@ public class HeavyCalculation : IJob
   }
 }
 
-// Automatically chooses threads based on your processor count, and names the process "MyThreads0", "MyThreads1", etc.
-// Should last the lifetime of your program!
-var scheduler = new JobScheduler("MyThreads");
+// Create a new Scheduler, which you should keep the lifetime of your program. This is the only API call that will allocate or generate garbage.
+var scheduler = new JobScheduler(new JobScheduler.Config()
+{
+    // Names the process "MyProgram0", "MyProgram1", etc.
+    ThreadPrefixName = "MyProgram",
 
-// You need to pool/create jobs by yourself
+    // Automatically chooses threads based on your processor count
+    ThreadCount = 0,
+
+    // The amount of jobs that can exist in the queue at once without the scheduler spontaneously allocating and generating garbage.
+    // Past this number, the scheduler is no longer Zero-Alloc!
+    // Higher numbers slightly decrease performance and increase memory consumption, so keep this on the lowest possible end for your application.
+    MaxExpectedConcurrentJobs = 64,
+
+    // Enables or disables strict allocation mode: if more jobs are scheduled at once than MaxExpectedConcurrentJobs, it throws an error.
+    // Not recommended for production code, but good for debugging allocation issues.
+    StrictAllocationMode = false,
+});
+
+// You need to pool/create jobs by yourself. This will, of course, allocate, so cache and reuse the jobs.
 var firstJob = new HeavyCalculation();  
 
-var firstHandle = scheduler.Schedule(firstJob); // Schedules job locally: this might allocate if JobScheduler needs more memory to hold all the concurrent tasks.
-                                                // But once those jobs are complete, the memory will be reused.
+var firstHandle = scheduler.Schedule(firstJob); // Schedules job locally
 
 scheduler.Flush();                              // Dispatches all scheduled jobs to the worker threads
 
 firstHandle.Complete();                         // Blocks the thread until the job is complete.
 
-// Dispose at program exit
+// Call Dispose at program exit, which shuts down all worker threads
 scheduler.Dispose();                
 ```
 
@@ -73,7 +87,7 @@ Rather than using `CombineDependencies()`, if you just need to block the main th
 
 ```csharp
 JobHandle.CompleteAll(JobHandle[] handles);                     // Waits for all JobHandles to finish, and blocks the main thread until they each complete (in any order)
-JobHandle.CompleteAll(IList<JobHandle> handles);
+JobHandle.CompleteAll(List<JobHandle> handles);
 ```
 
 Or, if you don't want to maintain a list or array, you can just call `handle.Complete()` on all your handles, in any order.

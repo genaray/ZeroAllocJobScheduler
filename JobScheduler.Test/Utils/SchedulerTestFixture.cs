@@ -16,6 +16,10 @@ internal class SchedulerTestFixture
 
     protected bool SuppressDispose { get; set; } = false;
 
+    // override to change values for fixture
+    protected virtual bool StrictAllocationMode { get; } = true;
+    protected virtual int MaxExpectedConcurrentJobs { get; } = 32;
+
     public SchedulerTestFixture(int threads)
     {
         ThreadCount = threads;
@@ -24,7 +28,12 @@ internal class SchedulerTestFixture
     [SetUp]
     public void Setup()
     {
-        Scheduler = new JobScheduler("Test", ThreadCount);
+        Scheduler = new JobScheduler(new() {
+            ThreadPrefixName = "Test",
+            ThreadCount = ThreadCount,
+            MaxExpectedConcurrentJobs = MaxExpectedConcurrentJobs,
+            StrictAllocationMode = StrictAllocationMode
+        });
     }
 
     [TearDown]

@@ -6,6 +6,8 @@ internal class CompleteTests : SchedulerTestFixture
 {
     public CompleteTests(int threads) : base(threads) { }
 
+    protected override bool StrictAllocationMode => false;
+
     [Test]
     public void OneJobCompletes()
     {
