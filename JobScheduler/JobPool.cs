@@ -15,7 +15,7 @@ internal record struct Job
     /// </summary>
     /// <param name="jobId">The <see cref="JobId"/>.</param>
     /// <param name="waitHandle">Its <see cref="ManualResetEvent"/>.</param>
-    public Job(JobId jobId, ManualResetEvent waitHandle)
+    public Job(JobId jobId, ManualResetEvent? waitHandle)
     {
         JobId = jobId;
         WaitHandle = waitHandle;
@@ -26,7 +26,7 @@ internal record struct Job
     /// <summary>
     /// The Handle of the job. 
     /// </summary>
-    public ManualResetEvent WaitHandle { get; }
+    public ManualResetEvent? WaitHandle { get; }
 
     /// <summary>
     /// When this hits 0, we can dispose the WaitHandle, and the JobID
@@ -53,7 +53,7 @@ internal class JobPool
     private int _nextId;
 
     // a list indexed by job ID; we can reuse job IDs once they're complete.
-    private Job?[] _jobs;
+    private Job[] _jobs;
 
     // the jobIDs to reuse, as well as the last version used
     private readonly Queue<JobId> _recycledIds;
@@ -68,7 +68,7 @@ internal class JobPool
 
     public JobPool(int capacity)
     {
-        _jobs = new Job?[capacity];
+        _jobs = new Job[capacity];
         _recycledIds = new(capacity);
         ManualResetEventPool = new(new ManualResetEventPolicy(), capacity);
 
@@ -93,6 +93,7 @@ internal class JobPool
         }
         
         var job = new Job(id, ManualResetEventPool.Get());
+        Debug.Assert(job.WaitHandle is not null);
         job.WaitHandle.Reset(); // must reset when acquiring
 
         // Adjust array size
@@ -113,10 +114,11 @@ internal class JobPool
     /// <param name="jobId">Its <see cref="JobId"/>.</param>
     private void Return(JobId jobId)
     {
-        Debug.Assert(_jobs[jobId.Id].HasValue && _jobs[jobId.Id]!.Value.IsComplete);
+        var job = _jobs[jobId.Id];
+        Debug.Assert(job.IsComplete);
+        Debug.Assert(job.WaitHandle is not null);
 
-        var job = _jobs[jobId.Id]!.Value;
-        _jobs[jobId.Id] = null;
+        _jobs[jobId.Id] = new(new(-1, -1), null);
         JobCount--;
         jobId.Version++;
         
@@ -133,7 +135,8 @@ internal class JobPool
     public ManualResetEvent AwaitJob(JobId jobId)
     {
         ValidateJobNotComplete(jobId); // ensure we're still on the right version
-        var job = _jobs[jobId.Id]!.Value;
+        var job = _jobs[jobId.Id];
+        Debug.Assert(job.WaitHandle is not null);
 
         // increment our subscribed handles for this jobID
         // ensures that we only dispose once all callers have gotten the message
@@ -152,7 +155,7 @@ internal class JobPool
     {
         // decrement our subscribed handles for this jobID
         // ensures that we only dispose once all callers have gotten the message
-        var job = _jobs[jobId.Id]!.Value;
+        var job = _jobs[jobId.Id];
 
         // ensure we haven't already returned it prematurely
         // ensure we're actually in a complete status now
@@ -176,14 +179,13 @@ internal class JobPool
     public ManualResetEvent? MarkComplete(JobId jobId)
     {
         ValidateJobNotComplete(jobId);
-        var job = _jobs[jobId.Id]!.Value;
+        var job = _jobs[jobId.Id];
         job.IsComplete = true;
         _jobs[jobId.Id] = job;
 
         if (job.WaitHandleSubscriptionCount > 0)
         {
             // we have subscribers, so we give up the handle to allow pinging, and keep it until we've resolved subscribers
-            _jobs[jobId.Id] = job;
             return job.WaitHandle;
         }
 
@@ -202,9 +204,9 @@ internal class JobPool
     {
         ValidateJobId(jobId);
         var job = _jobs[jobId.Id];
-        return !job.HasValue || // if it's missing, we've completed and removed it, and its ID hasn't been reused yet
-               job.Value.JobId.Version != jobId.Version || // if we're a different version, the jobID is long since completed and reused
-               job.Value.IsComplete; // we're the right version, and therefore waiting on some handles to Complete(), but we are definitely complete
+        return job.JobId.Id == -1 || // if it's missing, we've completed and removed it, and its ID hasn't been reused yet
+               job.JobId.Version != jobId.Version || // if we're a different version, the jobID is long since completed and reused
+               job.IsComplete; // we're the right version, and therefore waiting on some handles to Complete(), but we are definitely complete
     }
 
     [Conditional("DEBUG")]
