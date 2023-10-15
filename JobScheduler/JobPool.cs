@@ -81,17 +81,12 @@ internal class JobPool
     /// <returns>The <see cref="JobId"/> of the created job</returns>
     public JobId Schedule()
     {
-        JobId id;
-        if (_recycledIds.TryDequeue(out var recycledId))
-        {
-            id = recycledId;
-        }
-        else
+        if (!_recycledIds.TryDequeue(out JobId id))
         {
             id = new JobId(_nextId, 1);
             _nextId++;
         }
-        
+
         var job = new Job(id, ManualResetEventPool.Get());
         Debug.Assert(job.WaitHandle is not null);
         job.WaitHandle.Reset(); // must reset when acquiring
