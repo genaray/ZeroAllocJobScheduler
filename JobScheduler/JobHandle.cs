@@ -76,7 +76,10 @@ public readonly struct JobHandle
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void CompleteAll(JobHandle[] handles)
     {
-        foreach (var handle in handles) handle.Complete();
+        foreach (var handle in handles)
+        {
+            handle.Complete();
+        }
     }
 
     /// <summary>
@@ -87,6 +90,9 @@ public readonly struct JobHandle
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void CompleteAll(List<JobHandle> handles)
     {
-        foreach (var handle in handles) handle.Complete();
+        foreach (var handle in handles)
+        {
+            handle.Complete();
+        }
     }
 }

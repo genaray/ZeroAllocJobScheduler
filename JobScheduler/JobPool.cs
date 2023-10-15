@@ -58,6 +58,18 @@ internal class JobPool
     // the jobIDs to reuse, as well as the last version used
     private readonly Queue<JobId> _recycledIds;
 
+    public JobPool(int capacity)
+    {
+        _jobs = new Job[capacity];
+        _recycledIds = new(capacity);
+        ManualResetEventPool = new(new ManualResetEventPolicy(), capacity);
+
+        for (var i = 0; i < capacity; i++)
+        {
+            ManualResetEventPool.Return(new(false));
+        }
+    }
+    
     // A pool of handles to use for everything.
     private DefaultObjectPool<ManualResetEvent> ManualResetEventPool { get; }
 
@@ -65,15 +77,6 @@ internal class JobPool
     /// The amount of concurrent jobs currently in the <see cref="JobPool"/>.
     /// </summary>
     public int JobCount { get; private set; }
-
-    public JobPool(int capacity)
-    {
-        _jobs = new Job[capacity];
-        _recycledIds = new(capacity);
-        ManualResetEventPool = new(new ManualResetEventPolicy(), capacity);
-
-        for (int i = 0; i < capacity; i++) ManualResetEventPool.Return(new(false));
-    }
 
     /// <summary>
     /// Create a new <see cref="Job"/> in the pool, with an optional dependency
