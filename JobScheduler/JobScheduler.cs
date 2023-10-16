@@ -102,8 +102,11 @@ public class JobScheduler : IDisposable
     {
         MainThreadID = Thread.CurrentThread.ManagedThreadId;
 
-        int threads = settings.ThreadCount;
-        if (threads <= 0) threads = Environment.ProcessorCount;
+        var threads = settings.ThreadCount;
+        if (threads <= 0)
+        {
+            threads = Environment.ProcessorCount;
+        }
 
         _strictAllocationMode = settings.StrictAllocationMode;
         _maxConcurrentJobs = settings.MaxExpectedConcurrentJobs;
@@ -116,12 +119,21 @@ public class JobScheduler : IDisposable
 
         // ConcurrentQueue doesn't have a segment size constructor so we have to use a hack with the IEnumerable constructor.
         // First, we add a bunch of dummy jobs to the old queue...
-        for (int i = 0; i < settings.MaxExpectedConcurrentJobs; i++) QueuedJobs.Add(default);
+        for (var i = 0; i < settings.MaxExpectedConcurrentJobs; i++)
+        {
+            QueuedJobs.Add(default);
+        }
+        
         // ... then, we initialize the ConcurrentQueue with that collection. The segment size will be set to the count.
         // Note that this line WILL produce garbage due to IEnumerable iteration! (always boxes multiple enumerator structs)
         Jobs = new(QueuedJobs);
+        
         // Then, we dequeue everything from the ConcurrentQueue. We can't Clear() because that'll nuke the segment.
-        while (!Jobs.IsEmpty) Jobs.TryDequeue(out var _);
+        while (!Jobs.IsEmpty)
+        {
+            Jobs.TryDequeue(out var _);
+        }
+        
         // And then normally clear the normal queue we used.
         QueuedJobs.Clear();
 
@@ -310,7 +322,10 @@ public class JobScheduler : IDisposable
     /// <exception cref="MaximumConcurrentJobCountExceededException">If the maximum amount of concurrent jobs is at maximum, and strict mode is enabled.</exception>
     public JobHandle Schedule(IJob job, JobHandle? dependency = null)
     {
-        if (dependency is not null) CheckForSchedulerEquality(dependency.Value);
+        if (dependency is not null)
+        {
+            CheckForSchedulerEquality(dependency.Value);
+        }
         return Schedule(job, dependency, null);
     }
 
@@ -416,7 +431,9 @@ public class JobScheduler : IDisposable
             foreach (var job in QueuedJobs)
             {
                 if (job.JobID == jobID)
+                {
                     throw new InvalidOperationException($"Cannot wait on a job that is not flushed to the workers! Call {nameof(Flush)} first.");
+                }
             }
         }
     }
