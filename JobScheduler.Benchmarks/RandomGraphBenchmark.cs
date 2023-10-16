@@ -19,12 +19,12 @@ public class RandomGraphBenchmark
     /// <summary>
     /// The maximum amount of concurrent jobs active at one time, and nodes in the graph.
     /// </summary>
-    [Params(128)] public int ConcurrentJobs;
+    [Params(32, 128, 256)] public int ConcurrentJobs;
 
     /// <summary>
     /// How many times to evaluate the (same) graph in a trial
     /// </summary>
-    [Params(128)] public int Waves;
+    [Params(512)] public int Waves;
 
     /// <summary>
     /// The maximum Degree of the random graph (how interconnected the nodes are).
@@ -37,7 +37,7 @@ public class RandomGraphBenchmark
     /// Limited by <see cref="Degree"/>, so if <see cref="EdgeChance"/> is high and <see cref="Degree"/> is low
     /// the degree will almost always be reached.
     /// </summary>
-    [Params(0.05f)] public float EdgeChance;
+    [Params(0.05f, 0.2f)] public float EdgeChance;
 
     JobHandle[] Handles = null!;
     DirectedAcyclicGraph Graph = null!;
