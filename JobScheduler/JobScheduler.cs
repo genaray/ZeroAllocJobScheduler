@@ -58,40 +58,25 @@ public class JobScheduler : IDisposable
     }
 
     /// <summary>
-    ///     Pairs a <see cref="JobHandle"/> with its <see cref="IJob"/> and other important meta-data. 
+    ///     Pairs a <see cref="JobID"/> with its <see cref="IJob"/> and other important meta-data. 
     /// </summary>
     private readonly struct JobMeta
     {
-        public JobMeta(in JobHandle jobHandle, IJob? job, JobId? dependencyID, JobHandle[]? combinedDependencies)
+        public JobMeta(in JobId jobId, IJob? job)
         {
-            JobHandle = jobHandle;
+            JobID = jobId;
             Job = job;
-            Dependencies = combinedDependencies;
-            DependencyId = dependencyID;
-
-            if (Dependencies != null && DependencyId != null)
-                throw new InvalidOperationException("Jobs can't have singular and multiple dependencies");
         }
 
         /// <summary>
         ///     The <see cref="IJob"/>.
         /// </summary>
         public IJob? Job { get; }
-        
-        /// <summary>
-        ///     The <see cref="JobHandle"/>.
-        /// </summary>
-        public JobHandle JobHandle { get; }
 
         /// <summary>
-        ///     A dependency to another <see cref="JobId"/>.
+        ///     The <see cref="JobId"/>.
         /// </summary>
-        public JobId? DependencyId { get; }
-
-        /// <summary>
-        ///     More dependencies to multiple <see cref="JobHandle"/>s.
-        /// </summary>
-        public JobHandle[]? Dependencies { get; } = null;
+        public JobId JobID { get; }
     }
 
     // Tracks how many threads are active; interlocked
@@ -103,6 +88,11 @@ public class JobScheduler : IDisposable
     private readonly bool _strictAllocationMode;
     private readonly int _maxConcurrentJobs;
 
+    // temporary list for passing deps into JobPool
+    private readonly List<JobId> _dependencyCache;
+
+    // temporary list for passing deps into JobPool
+    private readonly List<(JobId, IJob?)> _readyDependencyCache;
 
     /// <summary>
     /// Creates an instance of the <see cref="JobScheduler"/>
@@ -117,6 +107,8 @@ public class JobScheduler : IDisposable
 
         _strictAllocationMode = settings.StrictAllocationMode;
         _maxConcurrentJobs = settings.MaxExpectedConcurrentJobs;
+        _dependencyCache = new(settings.MaxExpectedConcurrentJobs - 1);
+        _readyDependencyCache = new(settings.MaxExpectedConcurrentJobs - 1);
 
         // pre-fill all of our data structures up to the concurrent job max
         QueuedJobs = new(settings.MaxExpectedConcurrentJobs);
@@ -160,7 +152,7 @@ public class JobScheduler : IDisposable
     private ManualResetEvent CheckQueueEvent { get; } = new(false);
 
     /// <summary>
-    /// Jobs scheduled by the client, but not yet flushed to the threads
+    /// Jobs scheduled by the scheduler (NOT other jobs), but not yet flushed to the threads
     /// </summary>
     private List<JobMeta> QueuedJobs { get; }
 
@@ -193,40 +185,20 @@ public class JobScheduler : IDisposable
         {
             // wait for a signal that we should check the queue
             CheckQueueEvent.WaitOne();
-            CheckQueueEvent.Reset();
 
-            while (Jobs.TryDequeue(out var jobMeta) && !token.IsCancellationRequested)
+            ResolveQueue(token);
+
+            if (!token.IsCancellationRequested)
             {
-                // if we've got dependencies, we gotta resolve that first
-
-                // check multiple dependencies
-                if (jobMeta.Dependencies is not null)
-                {
-                    foreach (var dependency in jobMeta.Dependencies)
-                    {
-                        dependency.Complete();
-                    }
-                }
-
-                // check single dependency
-                if (jobMeta.DependencyId != null)
-                {
-                    Complete(jobMeta.DependencyId.Value);
-                }
-
-                // it might be null if this is a job generated with CombineDependencies
-                jobMeta.Job?.Execute();
-
-                // the purpose of this lock is to ensure that the Complete method always subscribes and listens to an existant signal.
-                ManualResetEvent? handle;
-                lock (JobPool)
-                {
-                    // remove the job from circulation
-                    handle = JobPool.MarkComplete(jobMeta.JobHandle.JobId);
-                }
-                // If JobScheduler.Complete was called on this job by a different thread, it told the job pool with Subscribe that we should ping,
-                // and that Complete would handle recycling. We notify the event here.
-                handle?.Set();
+                // we're pretty sure the queue is empty, so reset this event.
+                CheckQueueEvent.Reset();
+                // NOTE: if concurrency is bad here, we might reset right after it gets set, in quick succession.
+                // That will deadlock this thread for sure, and if another thread was waiting on the event, it might not get notified.
+                // Before there was a guarantee of at least one thread (us) getting the memo, since we Reset() only directly after a wait.
+                // (However, there wasn't a guarantee that every thread would wake up. They always did under my observation, but there's always a small chance.)
+                // So to re-implement this behavior, we look for queue content ourselves just in case none of the threads got the memo that the queue was open in time.
+                // (Once we use the work-stealing notification algorithm provided by Lin et al this will be resolved.)
+                ResolveQueue(token);
             }
         }
         Interlocked.Decrement(ref _threadsActive);
@@ -235,6 +207,41 @@ public class JobScheduler : IDisposable
             // if we're the last thread active, we don't need this event
             // to unblock potentially active threads anymore.
             CheckQueueEvent?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Tell threads to resolve the jobs queue, if possible.
+    /// </summary>
+    /// <param name="token"></param>
+    private void ResolveQueue(CancellationToken token)
+    {
+        while (Jobs.TryDequeue(out var jobMeta) && !token.IsCancellationRequested)
+        {
+            // it might be null if this is a job generated with CombineDependencies
+            jobMeta.Job?.Execute();
+
+            // the purpose of this lock is to ensure that the Complete method always subscribes and listens to an existant signal.
+            ManualResetEvent? handle;
+            int queued = 0;
+            lock (JobPool)
+            {
+                _readyDependencyCache.Clear();
+                // remove the job from circulation
+                handle = JobPool.MarkComplete(jobMeta.JobID, _readyDependencyCache);
+                foreach (var (dep, work) in _readyDependencyCache)
+                {
+                    queued++;
+                    Jobs.Enqueue(new(dep, work));
+                }
+            }
+
+            // If JobScheduler.Complete was called on this job by a different thread, it told the job pool with Subscribe that we should ping,
+            // and that Complete would handle recycling. We notify the event here.
+            handle?.Set();
+
+            // if we added more jobs, we need to tell threads (TODO: replace with work-stealing)
+            if (queued > 0) CheckQueueEvent.Set();
         }
     }
 
@@ -254,31 +261,47 @@ public class JobScheduler : IDisposable
             throw new InvalidOperationException($"Can only call {nameof(Schedule)} from the thread that spawned the {nameof(JobScheduler)}!");
         }
 
+        _dependencyCache.Clear();
+
+        if (dependencies != null)
+        {
+            foreach (var d in dependencies)
+            {
+                _dependencyCache.Add(d.JobId);
+            }
+        }
+        if (dependency != null) _dependencyCache.Add(dependency.Value.JobId);
+
         JobId jobId;
+        bool ready;
         lock (JobPool)
         {
             if (_strictAllocationMode && JobPool.JobCount >= _maxConcurrentJobs)
             {
                 throw new MaximumConcurrentJobCountExceededException();
             }
-            jobId = JobPool.Schedule();
+            jobId = JobPool.Schedule(_dependencyCache, job, out ready);
         }
 
         var handle = new JobHandle(this, jobId);
-        var jobMeta = new JobMeta(in handle, job, dependency?.JobId ?? null, dependencies);
+        var jobMeta = new JobMeta(jobId, job);
 
-        // we only lock in debug mode for strict flushed-jobs checking within Complete()
-#if DEBUG
-        lock (QueuedJobs)
-#endif
+        // if we're ready, we can go ahead and prep the job. If not, we leave that up to the dependencies.
+        if (ready)
         {
-            QueuedJobs.Add(jobMeta);
+            // we only lock in debug mode for strict flushed-jobs checking within Complete()
+#if DEBUG
+            lock (QueuedJobs)
+#endif
+            {
+                QueuedJobs.Add(jobMeta);
+            }
         }
         return handle;
     }
 
     /// <summary>
-    /// Schedules a job. It is only queued up, and will only begin processing when the user calls <see cref="Flush()"/>.
+    /// Schedules a job. It is only queued up, and will only begin processing when the user calls <see cref="Flush()"/> or when any in-progress dependencies complete.
     /// </summary>
     /// <param name="job">The job to process</param>
     /// <param name="dependency">A job that must complete before this job can be run</param>
@@ -295,13 +318,10 @@ public class JobScheduler : IDisposable
     /// <summary>
     ///     Combine multiple dependencies into a single <see cref="JobHandle"/> which is scheduled.
     /// </summary>
-    /// <remarks>The user must transfer ownership of this array to the scheduler, up until after <see cref="Complete"/> is
-    /// called on this task (or one of its dependants). If the data is modified, the dependency system will break.</remarks>
-    /// <param name="dependencies">A list of handles to depend on.</param>
+    /// <param name="dependencies">A list of handles to depend on. Assumed to not contain duplicates.</param>
     /// <returns>The combined <see cref="JobHandle"/></returns>
     /// <exception cref="InvalidOperationException">If called on a different thread than the <see cref="JobScheduler"/> was constructed on</exception>
     /// <exception cref="MaximumConcurrentJobCountExceededException">If the maximum amount of concurrent jobs is at maximum, and strict mode is enabled.</exception>
-    // TODO: consider doing some native allocation or cache to track these? would remove need to transfer ownership to user
     public JobHandle CombineDependencies(JobHandle[] dependencies)
     {
         foreach (var dependency in dependencies)
@@ -310,7 +330,7 @@ public class JobScheduler : IDisposable
         }
         return Schedule(null, null, dependencies);
     }
-    
+
     /// <summary>
     ///     Checks if the passed <see cref="JobHandle"/> equals this <see cref="JobScheduler"/>.
     /// </summary>
@@ -335,13 +355,14 @@ public class JobScheduler : IDisposable
             throw new InvalidOperationException($"Can only call {nameof(Flush)} from the thread that spawned the {nameof(JobScheduler)}!");
         }
 
+        if (QueuedJobs.Count == 0) return;
+
         // we only lock in debug mode for strict flushed-jobs checking within Complete()
 #if DEBUG
         lock (QueuedJobs)
 #endif
         {
-            // QueuedJobs is guaranteed to be scheduled in FIFO dependency order
-            // So all dependencies are guaranteed to be scheduled before their dependants
+            // QueuedJobs is guaranteed to only contain jobs that are ready
             foreach (var job in QueuedJobs)
             {
                 // because this is a concurrentqueue (linkedlist implementation under the hood)
@@ -394,7 +415,7 @@ public class JobScheduler : IDisposable
         {
             foreach (var job in QueuedJobs)
             {
-                if (job.JobHandle.JobId == jobID)
+                if (job.JobID == jobID)
                     throw new InvalidOperationException($"Cannot wait on a job that is not flushed to the workers! Call {nameof(Flush)} first.");
             }
         }
@@ -410,7 +431,7 @@ public class JobScheduler : IDisposable
         {
             throw new InvalidOperationException($"Can only call {nameof(Dispose)} from the thread that spawned the {nameof(JobScheduler)}!");
         }
-        
+
         // notify all threads to cancel
         CancellationTokenSource.Cancel(false);
         // we only lock in debug mode for strict flushed-jobs checking within Complete()
