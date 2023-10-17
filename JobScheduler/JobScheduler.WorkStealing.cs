@@ -1,4 +1,6 @@
-﻿namespace JobScheduler;
+﻿using DequeNet;
+
+namespace JobScheduler;
 
 // This section of JobScheduler deals with the implementation of the algorithm found here: https://tsung-wei-huang.github.io/papers/icpads20.pdf [1]
 // [1] Lin, C.-X., Huang, T.-W., & Wong, M. D. (2020). An efficient work-stealing scheduler for task dependency graph. 2020 IEEE 26th
@@ -74,26 +76,28 @@ public partial class JobScheduler
         {
             Id = id;
             ReadyDependencyCache = new(maxJobs - 1);
+            Deque = new(maxJobs);
         }
         public int Id { get; }
         public JobMeta? Cache { get; set; } = null;
 
-        // TEMPORARY: we're using LinkedList + locks here as a Deque, but it needs to be a proper concurrent Deque.
-        // Must be temporary because LinkedList is not zero alloc.
-        //
-        // One package that achieves this is DequeNET https://github.com/dcastro/DequeNET. We can either include the Nuget package
+        // We're using DequeNET https://github.com/dcastro/DequeNET. We can either include the Nuget package
         // or grab the code (it's MIT licensed). It's based on the Michael queue. [2]
         // [2] Michael, Maged, 2003, CAS-Based Lock-Free Algorithm for Shared Deques, Euro-Par 2003 Parallel Processing, v. 2790, p. 651-660,
         // http://www.research.ibm.com/people/m/michael/europar-2003.pdf (Decembre 22, 2013).
         // ^ Link is dead PDF is findable.
+        // 
+        // The massive issue is that ConcurrentDeque here is not alloc-free! It makes no effort to reuse nodes.
+        // We use instead the array-based Deque in the same package, but we have to lock :(
         //
         // However, Lin et al. use the Chase-Lev deque: https://www.dre.vanderbilt.edu/~schmidt/PDF/work-stealing-dequeue.pdf [3]
+        // The HUGE advantage to that is that the Chase-Lev deque is circular array-based AND ALSO lock-free. So it's ideal for our case.
         // [3] David Chase and Yossi Lev. Dynamic circular work-stealing deque. In SPAA, pages 21–28. ACM, 2005.
         // A Chase-Lev deque is here, in C++ https://github.com/ConorWilliams/ConcurrentDeque (Mozilla Public License 2.0; weak copyleft)
         // Here's one in Rust http://huonw.github.io/parry/deque/index.html (Apache 2.0)
         // Nobody's made a C# implementation yet. But we could; it looks doable. The original paper is in Java which makes it easier.
-        public LinkedList<JobMeta> Deque { get; } = new();
-        public object DequeLock { get; } = new();
+        public Deque<JobMeta> Deque { get; }
+        public object DequeLock = new();
 
         // store this to cache the output from JobPool per thread
         public List<(JobId, IJob?)> ReadyDependencyCache { get; }
@@ -170,13 +174,14 @@ public partial class JobScheduler
             // queue up in our personal queue for work-stealing
             // cache the first one
             workerData.Cache = new(readyDependencies[0].Item1, readyDependencies[0].Item2);
+
+            // queue up any additionals
             lock (workerData.DequeLock)
             {
-                // queue up any additionals
                 for (int i = 1; i < readyDependencies.Count; i++)
                 {
                     var tup = readyDependencies[i];
-                    workerData.Deque.AddFirst(new JobMeta(tup.Item1, tup.Item2));
+                    workerData.Deque.PushLeft(new JobMeta(tup.Item1, tup.Item2));
                 }
             }
         }
@@ -196,11 +201,8 @@ public partial class JobScheduler
         task = null;
         lock (workerData.DequeLock)
         {
-            if (workerData.Deque.First is not null)
-            {
-                task = workerData.Deque.First.Value;
-                workerData.Deque.RemoveFirst();
-            }
+            if (workerData.Deque.IsEmpty) return;
+            task = workerData.Deque.PopLeft();
         }
     }
 
@@ -210,11 +212,8 @@ public partial class JobScheduler
         task = null;
         lock (workerData.DequeLock)
         {
-            if (workerData.Deque.Last is not null)
-            {
-                task = workerData.Deque.Last.Value;
-                workerData.Deque.RemoveLast();
-            }
+            if (workerData.Deque.IsEmpty) return;
+            task = workerData.Deque.PopRight();
         }
     }
 
