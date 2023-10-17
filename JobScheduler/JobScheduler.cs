@@ -7,7 +7,7 @@ namespace JobScheduler;
 /// <summary>
 ///     A <see cref="JobScheduler"/> schedules and processes <see cref="IJob"/>s asynchronously. Better-suited for larger jobs due to its underlying events. 
 /// </summary>
-public class JobScheduler : IDisposable
+public partial class JobScheduler : IDisposable
 {
     /// <summary>
     /// Contains configuration settings for <see cref="JobScheduler"/>.
@@ -79,20 +79,17 @@ public class JobScheduler : IDisposable
         public JobId JobID { get; }
     }
 
-    // Tracks how many threads are active; interlocked
-    private int _threadsActive = 0;
+    // Tracks how many threads are alive; interlocked
+    private int _threadsAlive = 0;
 
     // internally visible for testing
-    internal int ThreadsActive => _threadsActive;
+    internal int ThreadsAlive => _threadsAlive;
 
     private readonly bool _strictAllocationMode;
     private readonly int _maxConcurrentJobs;
 
     // temporary list for passing deps into JobPool
     private readonly List<JobId> _dependencyCache;
-
-    // temporary list for passing deps into JobPool
-    private readonly List<(JobId, IJob?)> _readyDependencyCache;
 
     /// <summary>
     /// Creates an instance of the <see cref="JobScheduler"/>
@@ -111,7 +108,6 @@ public class JobScheduler : IDisposable
         _strictAllocationMode = settings.StrictAllocationMode;
         _maxConcurrentJobs = settings.MaxExpectedConcurrentJobs;
         _dependencyCache = new(settings.MaxExpectedConcurrentJobs - 1);
-        _readyDependencyCache = new(settings.MaxExpectedConcurrentJobs - 1);
 
         // pre-fill all of our data structures up to the concurrent job max
         QueuedJobs = new(settings.MaxExpectedConcurrentJobs);
@@ -126,25 +122,31 @@ public class JobScheduler : IDisposable
         
         // ... then, we initialize the ConcurrentQueue with that collection. The segment size will be set to the count.
         // Note that this line WILL produce garbage due to IEnumerable iteration! (always boxes multiple enumerator structs)
-        Jobs = new(QueuedJobs);
+        MasterQueue = new(QueuedJobs);
         
         // Then, we dequeue everything from the ConcurrentQueue. We can't Clear() because that'll nuke the segment.
-        while (!Jobs.IsEmpty)
+        while (!MasterQueue.IsEmpty)
         {
-            Jobs.TryDequeue(out var _);
+            MasterQueue.TryDequeue(out var _);
         }
         
         // And then normally clear the normal queue we used.
         QueuedJobs.Clear();
 
+        InitAlgorithm(threads, _maxConcurrentJobs, CancellationTokenSource.Token);
+
+        // we count us as a thread
+        _threadsAlive = threads;
+
         // spawn all the child threads
         for (var i = 0; i < threads; i++)
         {
-            var thread = new Thread(() => Loop(CancellationTokenSource.Token))
+            int c = i;
+            var thread = new Thread(WorkerLoop)
             {
                 Name = $"{settings.ThreadPrefixName}{i}"
             };
-            thread.Start();
+            thread.Start(i);
         }
     }
 
@@ -159,11 +161,6 @@ public class JobScheduler : IDisposable
     private CancellationTokenSource CancellationTokenSource { get; } = new();
 
     /// <summary>
-    /// Informs child threads that they should check the queue for more jobs
-    /// </summary>
-    private ManualResetEvent CheckQueueEvent { get; } = new(false);
-
-    /// <summary>
     /// Jobs scheduled by the scheduler (NOT other jobs), but not yet flushed to the threads
     /// </summary>
     private List<JobMeta> QueuedJobs { get; }
@@ -171,7 +168,7 @@ public class JobScheduler : IDisposable
     /// <summary>
     /// Jobs flushed and waiting to be picked up by worker threads
     /// </summary>
-    private ConcurrentQueue<JobMeta> Jobs { get; }
+    private ConcurrentQueue<JobMeta> MasterQueue { get; }
 
     /// <summary>
     /// Tracks each job from scheduling to completion; when they complete, however, their data is removed from the pool and recycled.
@@ -179,83 +176,10 @@ public class JobScheduler : IDisposable
     /// </summary>
     private JobPool JobPool { get; }
 
-
     /// <summary>
     /// Returns whether this is the main thread the scheduler was created on
     /// </summary>
     private bool IsMainThread => Thread.CurrentThread.ManagedThreadId == MainThreadID;
-
-    /// <summary>
-    /// The main loop for each child thread
-    /// </summary>
-    /// <param name="token"></param>
-    private void Loop(CancellationToken token)
-    {
-        Interlocked.Increment(ref _threadsActive);
-        // as long as we're not exiting, loop
-        while (!token.IsCancellationRequested)
-        {
-            // wait for a signal that we should check the queue
-            CheckQueueEvent.WaitOne();
-
-            ResolveQueue(token);
-
-            if (!token.IsCancellationRequested)
-            {
-                // we're pretty sure the queue is empty, so reset this event.
-                CheckQueueEvent.Reset();
-                // NOTE: if concurrency is bad here, we might reset right after it gets set, in quick succession.
-                // That will deadlock this thread for sure, and if another thread was waiting on the event, it might not get notified.
-                // Before there was a guarantee of at least one thread (us) getting the memo, since we Reset() only directly after a wait.
-                // (However, there wasn't a guarantee that every thread would wake up. They always did under my observation, but there's always a small chance.)
-                // So to re-implement this behavior, we look for queue content ourselves just in case none of the threads got the memo that the queue was open in time.
-                // (Once we use the work-stealing notification algorithm provided by Lin et al this will be resolved.)
-                ResolveQueue(token);
-            }
-        }
-        Interlocked.Decrement(ref _threadsActive);
-        if (_threadsActive == 0)
-        {
-            // if we're the last thread active, we don't need this event
-            // to unblock potentially active threads anymore.
-            CheckQueueEvent?.Dispose();
-        }
-    }
-
-    /// <summary>
-    /// Tell threads to resolve the jobs queue, if possible.
-    /// </summary>
-    /// <param name="token"></param>
-    private void ResolveQueue(CancellationToken token)
-    {
-        while (Jobs.TryDequeue(out var jobMeta) && !token.IsCancellationRequested)
-        {
-            // it might be null if this is a job generated with CombineDependencies
-            jobMeta.Job?.Execute();
-
-            // the purpose of this lock is to ensure that the Complete method always subscribes and listens to an existant signal.
-            ManualResetEvent? handle;
-            int queued = 0;
-            lock (JobPool)
-            {
-                _readyDependencyCache.Clear();
-                // remove the job from circulation
-                handle = JobPool.MarkComplete(jobMeta.JobID, _readyDependencyCache);
-                foreach (var (dep, work) in _readyDependencyCache)
-                {
-                    queued++;
-                    Jobs.Enqueue(new(dep, work));
-                }
-            }
-
-            // If JobScheduler.Complete was called on this job by a different thread, it told the job pool with Subscribe that we should ping,
-            // and that Complete would handle recycling. We notify the event here.
-            handle?.Set();
-
-            // if we added more jobs, we need to tell threads (TODO: replace with work-stealing)
-            if (queued > 0) CheckQueueEvent.Set();
-        }
-    }
 
     /// <summary>
     ///     Schedules a <see cref="IJob"/> and returns its <see cref="JobHandle"/>.
@@ -382,15 +306,15 @@ public class JobScheduler : IDisposable
             {
                 // because this is a concurrentqueue (linkedlist implementation under the hood)
                 // we don't have to worry about ordering issues (if someone dequeues while we do this, it'll just take the first one we added, which is fine)
-                Jobs.Enqueue(job);
+                MasterQueue.Enqueue(job);
             }
 
             // clear the the incoming queue
             QueuedJobs.Clear();
-
-            // tell the child processes that we've updated the queue, in case they've stalled out
-            CheckQueueEvent.Set();
         }
+
+        // algorithm 1
+        _notifier.NotifyOne();
     }
 
     /// <summary>
@@ -458,10 +382,11 @@ public class JobScheduler : IDisposable
         {
             QueuedJobs.Clear();
         }
-        Jobs.Clear();
-        // In case some thread is waiting on the queue, bump them out.
-        // They will then dispose this event, finishing the Dispose().
-        // At that point, all references should be dead and the GC should take over, if the user nukes their own reference.
-        CheckQueueEvent.Set();
+        MasterQueue.Clear();
+
+        // notifier handles issues where threads might dispose this early for us
+        // either this works and threads are signalled to go into shutdown mode, which eventually dispose..
+        // or they somehow managed to 100% shutdown and dispose already, in which case his does nothing.
+        _notifier.NotifyAll();
     }
 }

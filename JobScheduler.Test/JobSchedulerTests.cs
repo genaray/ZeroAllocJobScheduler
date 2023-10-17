@@ -13,10 +13,10 @@ internal class JobSchedulerTests : SchedulerTestFixture
         var numThreads = ThreadCount;
         if (numThreads <= 0) numThreads = Environment.ProcessorCount;
         Thread.Sleep(10); // wait for threads to spawn
-        Assert.That(Scheduler.ThreadsActive, Is.EqualTo(numThreads));
+        Assert.That(Scheduler.ThreadsAlive, Is.EqualTo(numThreads));
         Scheduler.Dispose();
         Thread.Sleep(10);
-        Assert.That(Scheduler.ThreadsActive, Is.EqualTo(0));
+        Assert.That(Scheduler.ThreadsAlive, Is.EqualTo(0));
     }
 
     private class ExceptionJob : IJob
