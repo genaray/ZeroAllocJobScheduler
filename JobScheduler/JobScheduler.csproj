@@ -28,7 +28,6 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="DequeNET" Version="1.0.2" />
         <PackageReference Include="Microsoft.Extensions.ObjectPool" Version="7.0.0" />
     </ItemGroup>
 

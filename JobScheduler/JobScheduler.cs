@@ -166,11 +166,6 @@ public partial class JobScheduler : IDisposable
     private List<JobMeta> QueuedJobs { get; }
 
     /// <summary>
-    /// Jobs flushed and waiting to be picked up by worker threads
-    /// </summary>
-    private ConcurrentQueue<JobMeta> MasterQueue { get; }
-
-    /// <summary>
     /// Tracks each job from scheduling to completion; when they complete, however, their data is removed from the pool and recycled.
     /// Note that we have to lock this, and can't use a ReaderWriterLock/ReaderWriterLockSlim because those allocate.
     /// </summary>

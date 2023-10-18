@@ -82,7 +82,7 @@ internal class CombineDependenciesTests : SchedulerTestFixture
         // this should be kept as low as possible to avoid long test times.
         // the goal is to get it as small as possible without the threads outrunning the main thread (because if that happens, everything will
         // complete without us testing whether it's completing in the right order!)
-        int timeout = 1;
+        int timeout = 5;
 
         List<DependencyChainElement> chain = new();
         for (int i = 0; i < chainLength; i++)

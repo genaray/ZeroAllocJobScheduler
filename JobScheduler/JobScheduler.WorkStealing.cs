@@ -1,16 +1,25 @@
-﻿using DequeNet;
+﻿using JobScheduler.Deque;
+using System.Collections.Concurrent;
 
 namespace JobScheduler;
 
-// This section of JobScheduler deals with the implementation of the algorithm found here: https://tsung-wei-huang.github.io/papers/icpads20.pdf [1]
+// This section of JobScheduler deals with the implementation of the Lin et al. algorithm [1]. 
+// It is compartmentalized into a separate partial, so that it can express the paper's algorithm as clearly and readably as possible,
+// without any overhead pollution from our API. Elements that differ are marked below.
+//
+// The key insight of Lin et al. is their method of first attempting multiple steals, and then yielding, and then sleeping, based on
+// threshold values. Other than that, it's a normal work-stealing algorithm.
+//
 // [1] Lin, C.-X., Huang, T.-W., & Wong, M. D. (2020). An efficient work-stealing scheduler for task dependency graph. 2020 IEEE 26th
-//      International Conference on Parallel and Distributed Systems (ICPADS). https://doi.org/10.1109/icpads51040.2020.00018 
+//      International Conference on Parallel and Distributed Systems (ICPADS). https://doi.org/10.1109/icpads51040.2020.00018.
+//      Retrieved October 17, 2023 from https://tsung-wei-huang.github.io/papers/icpads20.pdf
 public partial class JobScheduler
 {
     // The Lin et al. version uses an Eventcount, which I don't fully understand and definitely can't implement.
     // Here's the best compilation of documentation I've found on them: https://gist.github.com/mratsim/04a29bdd98d6295acda4d0677c4d0041
     // I haven't seen any .NET implementations.
     // For now, this is fine: the requirement the paper presents is that the notifier must be able to wake a single thread, or multiple threads, and wait.
+    // And this class can do all those things.
     private class Notifier
     {
         // lets 1 thread through when Set(), then immediately resets
@@ -70,6 +79,8 @@ public partial class JobScheduler
         }
     }
 
+    // Stores data per each worker, that only that worer has access to.
+    // The only difference is when a worker steals from another's Deque.
     private class WorkerData
     {
         public WorkerData(int id, int maxJobs)
@@ -80,24 +91,7 @@ public partial class JobScheduler
         }
         public int Id { get; }
         public JobMeta? Cache { get; set; } = null;
-
-        // We're using DequeNET https://github.com/dcastro/DequeNET. We can either include the Nuget package
-        // or grab the code (it's MIT licensed). It's based on the Michael queue. [2]
-        // [2] Michael, Maged, 2003, CAS-Based Lock-Free Algorithm for Shared Deques, Euro-Par 2003 Parallel Processing, v. 2790, p. 651-660,
-        // http://www.research.ibm.com/people/m/michael/europar-2003.pdf (Decembre 22, 2013).
-        // ^ Link is dead PDF is findable.
-        // 
-        // The massive issue is that ConcurrentDeque here is not alloc-free! It makes no effort to reuse nodes.
-        // We use instead the array-based Deque in the same package, but we have to lock :(
-        //
-        // However, Lin et al. use the Chase-Lev deque: https://www.dre.vanderbilt.edu/~schmidt/PDF/work-stealing-dequeue.pdf [3]
-        // The HUGE advantage to that is that the Chase-Lev deque is circular array-based AND ALSO lock-free. So it's ideal for our case.
-        // [3] David Chase and Yossi Lev. Dynamic circular work-stealing deque. In SPAA, pages 21–28. ACM, 2005.
-        // A Chase-Lev deque is here, in C++ https://github.com/ConorWilliams/ConcurrentDeque (Mozilla Public License 2.0; weak copyleft)
-        // Here's one in Rust http://huonw.github.io/parry/deque/index.html (Apache 2.0)
-        // Nobody's made a C# implementation yet. But we could; it looks doable. The original paper is in Java which makes it easier.
-        public Deque<JobMeta> Deque { get; }
-        public object DequeLock = new();
+        public WorkStealingDeque<JobMeta> Deque { get; }
 
         // store this to cache the output from JobPool per thread
         public List<(JobId, IJob?)> ReadyDependencyCache { get; }
@@ -115,6 +109,12 @@ public partial class JobScheduler
     private WorkerData[] _workers = null!;
     private CancellationToken _token;
 
+    /// <summary>
+    /// Jobs flushed and waiting to be picked up by worker threads
+    /// </summary>
+    private ConcurrentQueue<JobMeta> MasterQueue { get; }
+
+    // sets up all the various properties; called by the constructor of JobScheduler
     private void InitAlgorithm(int threadCount, int maxJobs, CancellationToken token)
     {
         _stealBound = 2 * (threadCount - 1);
@@ -128,7 +128,7 @@ public partial class JobScheduler
     }
 
 
-    // algorithm 2
+    // Algorithm 2 [1]
     private void WorkerLoop(object data)
     {
         var worker = (int)data;
@@ -145,6 +145,7 @@ public partial class JobScheduler
             }
         }
 
+        // allows us to track thread disposal; differs from Lin et al
         if (Interlocked.Decrement(ref _threadsAlive) == 0)
         {
             // if we're the last thread active, we don't need this event
@@ -153,7 +154,10 @@ public partial class JobScheduler
         }
     }
 
-    // actually do the execution of a task
+    // Actually do the execution of a task
+    // In Lin et al. the functionality of this method is merely implied.
+    // The idea is that a task will execute, and then push any newly resolved dependencies to its cache and queue.
+    // So this is the least clearly-indicated method from Lin, and has the most pollution from our own job-tracking API. (JobInfoPool etc).
     private void Execute(in JobMeta task, WorkerData workerData)
     {
         // it might be null if this is a job generated with CombineDependencies
@@ -171,22 +175,19 @@ public partial class JobScheduler
 
         if (readyDependencies.Count > 0)
         {
-            // queue up in our personal queue for work-stealing
-            // cache the first one
+            // Cache the first unlocked dependency for quick access
             workerData.Cache = new(readyDependencies[0].Item1, readyDependencies[0].Item2);
 
-            // queue up any additionals
-            lock (workerData.DequeLock)
+            // Queue up any others
+            for (int i = 1; i < readyDependencies.Count; i++)
             {
-                for (int i = 1; i < readyDependencies.Count; i++)
-                {
-                    var tup = readyDependencies[i];
-                    workerData.Deque.PushLeft(new JobMeta(tup.Item1, tup.Item2));
-                }
+                var tup = readyDependencies[i];
+                Push(new JobMeta(tup.Item1, tup.Item2), workerData);
             }
         }
         else
         {
+            // If we didn't find anything, we clear the cache
             workerData.Cache = null;
         }
 
@@ -195,29 +196,33 @@ public partial class JobScheduler
         handle?.Set();
     }
 
-    // pops from our own queue
+    // Pops from our own deque
     private void Pop(out JobMeta? task, WorkerData workerData)
     {
-        task = null;
-        lock (workerData.DequeLock)
+        if (workerData.Deque.TryPopBottom(out var popped))
         {
-            if (workerData.Deque.IsEmpty) return;
-            task = workerData.Deque.PopLeft();
+            task = popped;
         }
+        else task = null;
     }
 
-    // steals from a victim's queue
+    // Pushes to our own deque
+    private void Push(in JobMeta task, WorkerData workerData)
+    {
+        workerData.Deque.PushBottom(task);
+    }
+
+    // Steals from a victim's deque
     private void StealFrom(out JobMeta? task, WorkerData workerData)
     {
-        task = null;
-        lock (workerData.DequeLock)
+        if (workerData.Deque.TrySteal(out var stolen))
         {
-            if (workerData.Deque.IsEmpty) return;
-            task = workerData.Deque.PopRight();
+            task = stolen;
         }
+        else task = null;
     }
 
-    // algorithm 3
+    // Algorithm 3 [1]
     private void ExploitTask(ref JobMeta? task, WorkerData workerData)
     {
         // if we incremented _numActives from 0 to 1, and there aren't any thieves currently active.
@@ -229,15 +234,18 @@ public partial class JobScheduler
 
         do
         {
-            if (task is not null) Execute(task.Value, workerData);
+            if (task is not null)
+            {
+                Execute(task.Value, workerData);
+            }
             if (workerData.Cache is not null)
             {
-                // we cache our next task to work on, if available
+                // We use a cached task before our deque, if available, for quick access
                 task = workerData.Cache;
             }
             else
             {
-                // otherwise, we just pop from our queue
+                // Otherwise, we just pop from our deque until it's empty
                 Pop(out task, workerData);
             }
         }
@@ -246,19 +254,19 @@ public partial class JobScheduler
         Interlocked.Decrement(ref _numActives);
     }
 
-    // algorithm 5
+    // Algorithm 5 [1]
     private bool WaitForTask(ref JobMeta? task, WorkerData workerData)
     {
-        WaitForTask:
-        // it's stealing time!
+    WaitForTask:
+        // It's stealing time!
         Interlocked.Increment(ref _numThieves);
-        // do the actual steal
+        // Do the actual steal
         ExploreTask(ref task, workerData);
 
-        // if we succeeded in stealing, return true.
+        // If we succeeded in stealing, return true.
         if (task is not null)
         {
-            // if we were the last thief active, we'd better wake another one up.
+            // If we were the last thief active, we'd better wake another one up.
             if (Interlocked.Decrement(ref _numThieves) == 0)
             {
                 _notifier.NotifyOne();
@@ -266,10 +274,10 @@ public partial class JobScheduler
             return true;
         }
 
-        // we failed stealing even after multiple tries, so we have to wait.
+        // We failed stealing even after multiple tries, so we have to wait.
 
-        // First, though, we check the master queue in case anything's been added
-        // (is this necessary without Eventcount? I'm not sure.)
+        // First, though, we check the master queue in case anything's been added. This is the only point where
+        // we access the master queue, so it's important to capture new jobs.
         if (MasterQueue.TryDequeue(out var stolenTask))
         {
             // oh wait, we actually can take from the master queue.
@@ -294,7 +302,7 @@ public partial class JobScheduler
         // If we're finished, don't start waiting
         if (_token.IsCancellationRequested)
         {
-            // tell everyone else we're finished
+            // Tell everyone else we're finished
             _notifier.NotifyAll();
             Interlocked.Decrement(ref _numThieves);
             return false;
@@ -311,7 +319,7 @@ public partial class JobScheduler
         return true;
     }
 
-    // algorithm 4
+    // Algorithm 4 [1]
     private void ExploreTask(ref JobMeta? task, WorkerData workerData)
     {
         int numFailedSteals = 0;
@@ -322,7 +330,7 @@ public partial class JobScheduler
             var victim = GetRandomThread();
             if (victim.Id == workerData.Id)
             {
-                // if we randomly choose ourselves we treat that as the master queue, and steal from there
+                // If we randomly choose ourselves we treat that as the master queue, and steal from there
                 if (MasterQueue.TryDequeue(out var stolen))
                 {
                     task = stolen;
@@ -333,18 +341,18 @@ public partial class JobScheduler
                 // Otherwise we steal from the victim!
                 StealFrom(out task, victim);
             }
-            
-            // steal success!
+
+            // Steal success!
             if (task is not null) break;
 
-            // steal failed.
+            // Steal failed.
             numFailedSteals++;
             if (numFailedSteals >= _stealBound)
             {
-                // if we've failed too many steals, we need to start yielding between steals.
+                // If we've failed too many steals, we need to start yielding between steals.
                 Thread.Yield();
                 numYields++;
-                // if we've yielded too much, we give up completely and let WaitForTask decide whether to put us back to sleep (maybe)
+                // If we've yielded too much, we give up completely and let WaitForTask decide whether to put us back to sleep (maybe)
                 if (numYields == _yieldBound) break;
             }
         }
