@@ -9,24 +9,44 @@ namespace JobScheduler;
 /// </summary>
 internal record struct Job
 {
-    
+
     /// <summary>
     ///     Creates a new <see cref="Job"/> instance.
     /// </summary>
     /// <param name="jobId">The <see cref="JobId"/>.</param>
     /// <param name="waitHandle">Its <see cref="ManualResetEvent"/>.</param>
-    public Job(JobId jobId, ManualResetEvent? waitHandle)
+    /// <param name="dependents">The initial list of dependents this Job has</param>
+    /// <param name="jobWork">The job work associated with this Job</param>
+    public Job(JobId jobId, ManualResetEvent? waitHandle, List<JobId> dependents, IJob? jobWork)
     {
         JobId = jobId;
         WaitHandle = waitHandle;
+        Dependents = dependents;
+        JobWork = jobWork;
     }
 
     internal JobId JobId { get; }
 
     /// <summary>
+    /// The actual code of the job.
+    /// </summary>
+    public IJob? JobWork { get; }
+
+    /// <summary>
     /// The Handle of the job. 
     /// </summary>
     public ManualResetEvent? WaitHandle { get; }
+
+    /// <summary>
+    /// The list of dependents this job has (NOT dependencies!)
+    /// When this job completes it will decrease the <see cref="DependencyCount"/> of any dependants.
+    /// </summary>
+    public List<JobId> Dependents { get; }
+
+    /// <summary>
+    /// The number of Dependencies (NOT dependants!) that must complete before this job can be added to the queue
+    /// </summary>
+    public int DependencyCount { get; set; } = 0;
 
     /// <summary>
     /// When this hits 0, we can dispose the WaitHandle, and the JobID
@@ -64,12 +84,13 @@ internal class JobPool
         _recycledIds = new(capacity);
         ManualResetEventPool = new(new ManualResetEventPolicy(), capacity);
 
-        for (var i = 0; i < capacity; i++)
+        for (int i = 0; i < capacity; i++)
         {
             ManualResetEventPool.Return(new(false));
+            _jobs[i] = new Job(new(-1, -1), null, new(capacity - 1), null);
         }
     }
-    
+
     // A pool of handles to use for everything.
     private DefaultObjectPool<ManualResetEvent> ManualResetEventPool { get; }
 
@@ -82,7 +103,7 @@ internal class JobPool
     /// Create a new <see cref="Job"/> in the pool, with an optional dependency
     /// </summary>
     /// <returns>The <see cref="JobId"/> of the created job</returns>
-    public JobId Schedule()
+    public JobId Schedule(List<JobId> dependencies, IJob? work, out bool ready)
     {
         if (!_recycledIds.TryDequeue(out JobId id))
         {
@@ -90,16 +111,40 @@ internal class JobPool
             _nextId++;
         }
 
-        var job = new Job(id, ManualResetEventPool.Get());
-        Debug.Assert(job.WaitHandle is not null);
-        job.WaitHandle.Reset(); // must reset when acquiring
-
         // Adjust array size
         if (_jobs.Length <= id.Id)
         {
-            Array.Resize(ref _jobs, _jobs.Length * 2);    
+            int oldSize = _jobs.Length;
+            Array.Resize(ref _jobs, _jobs.Length * 2);
+            // make lists
+            for (int i = oldSize; i < _jobs.Length; i++)
+            {
+                // don't worry about allocating a size of the list; if we're resizing we're spontaneously allocating anyways so we don't want to overuse memory
+                _jobs[i] = new Job(new(-1, -1), null, new(), null);
+            }
         }
-        
+
+        int dependencyCount = 0;
+        if (dependencies is not null)
+        {
+            foreach (var dependency in dependencies)
+            {
+                ValidateJobId(dependency);
+                if (IsComplete(dependency)) continue;
+                dependencyCount++;
+                var d = _jobs[dependency.Id];
+                d.Dependents.Add(id);
+            }
+        }
+
+        ready = dependencyCount == 0; // we don't have any active dependencies
+
+        var job = new Job(id, ManualResetEventPool.Get(), _jobs[id.Id].Dependents, work);
+        Debug.Assert(job.Dependents.Count == 0);
+        Debug.Assert(job.WaitHandle is not null);
+        job.WaitHandle.Reset(); // must reset when acquiring
+        job.DependencyCount = dependencyCount;
+
         _jobs[id.Id] = job;
         JobCount++;
         return id;
@@ -115,8 +160,9 @@ internal class JobPool
         var job = _jobs[jobId.Id];
         Debug.Assert(job.IsComplete);
         Debug.Assert(job.WaitHandle is not null);
+        Debug.Assert(job.Dependents.Count == 0); // we should've already processed dependents
 
-        _jobs[jobId.Id] = new(new(-1, -1), null);
+        _jobs[jobId.Id] = new(new(-1, -1), null, job.Dependents, null);
         JobCount--;
         jobId.Version++;
         
@@ -168,17 +214,32 @@ internal class JobPool
             Return(jobId);
         }
     }
-    
+
     /// <summary>
-    ///     Mark a <see cref="Job"/> as Complete by its <see cref="JobId"/>.
-    ///     Removing it from circulation entirely. The <see cref="ManualResetEvent"/> is not disposed yet.
+    ///     Mark a <see cref="Job"/> as Complete by its <see cref="JobId"/>, removing it from circulation entirely.
+    ///     The <see cref="ManualResetEvent"/> is not disposed yet, unless there are no subscribers.
     /// </summary>
     /// <param name="jobId">The <see cref="JobId"/>.</param>
-    public ManualResetEvent? MarkComplete(JobId jobId)
+    /// <param name="readyDependencies">Filled with any dependencies that are now ready for execution.</param>
+    /// <returns>The <see cref="ManualResetEvent"/>, if there were subscribers that the caller must notify.</returns>
+    public ManualResetEvent? MarkComplete(JobId jobId, List<(JobId ID, IJob? Work)> readyDependencies)
     {
         ValidateJobNotComplete(jobId);
         var job = _jobs[jobId.Id];
         job.IsComplete = true;
+        foreach (var dependent in job.Dependents)
+        {
+            var d = _jobs[dependent.Id];
+            Debug.Assert(d.DependencyCount > 0);
+            d.DependencyCount--;
+            if (d.DependencyCount == 0)
+            {
+                readyDependencies.Add((dependent, d.JobWork));
+            }
+            _jobs[dependent.Id] = d;
+        }
+
+        job.Dependents.Clear();
         _jobs[jobId.Id] = job;
 
         if (job.WaitHandleSubscriptionCount > 0)
@@ -190,6 +251,16 @@ internal class JobPool
         // we do not have subscribers, so the handle was never used
         Return(jobId);
         return null;
+    }
+
+    /// <summary>
+    /// Returns whether this job is ready to run, i.e. has 0 incomplete dependencies.
+    /// </summary>
+    public bool IsReady(JobId jobId)
+    {
+        ValidateJobNotComplete(jobId);
+        var job = _jobs[jobId.Id];
+        return job.DependencyCount == 0;
     }
     
 
