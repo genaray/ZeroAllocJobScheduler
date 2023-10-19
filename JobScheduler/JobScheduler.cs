@@ -57,28 +57,6 @@ public partial class JobScheduler : IDisposable
         }
     }
 
-    /// <summary>
-    ///     Pairs a <see cref="JobID"/> with its <see cref="IJob"/> and other important meta-data. 
-    /// </summary>
-    private readonly struct JobMeta
-    {
-        public JobMeta(in JobId jobId, IJob? job)
-        {
-            JobID = jobId;
-            Job = job;
-        }
-
-        /// <summary>
-        ///     The <see cref="IJob"/>.
-        /// </summary>
-        public IJob? Job { get; }
-
-        /// <summary>
-        ///     The <see cref="JobId"/>.
-        /// </summary>
-        public JobId JobID { get; }
-    }
-
     // Tracks how many threads are alive; interlocked
     private int _threadsAlive = 0;
 
@@ -89,7 +67,10 @@ public partial class JobScheduler : IDisposable
     private readonly int _maxConcurrentJobs;
 
     // temporary list for passing deps into JobPool
-    private readonly List<JobId> _dependencyCache;
+    private readonly List<JobHandle> _dependencyCache;
+
+    // a pool for recyling managed Jobs
+    private readonly ConcurrentQueue<Job> _jobPool;
 
     /// <summary>
     /// Creates an instance of the <see cref="JobScheduler"/>
@@ -111,27 +92,39 @@ public partial class JobScheduler : IDisposable
 
         // pre-fill all of our data structures up to the concurrent job max
         QueuedJobs = new(settings.MaxExpectedConcurrentJobs);
-        JobPool = new(settings.MaxExpectedConcurrentJobs);
 
         // ConcurrentQueue doesn't have a segment size constructor so we have to use a hack with the IEnumerable constructor.
         // First, we add a bunch of dummy jobs to the old queue...
         for (var i = 0; i < settings.MaxExpectedConcurrentJobs; i++)
         {
-            QueuedJobs.Add(default);
+            QueuedJobs.Add(null!); // this null is temporary
         }
         
         // ... then, we initialize the ConcurrentQueue with that collection. The segment size will be set to the count.
         // Note that this line WILL produce garbage due to IEnumerable iteration! (always boxes multiple enumerator structs)
         MasterQueue = new(QueuedJobs);
+        // We also do the pool, just to have the segment size.
+        _jobPool = new(QueuedJobs);
         
         // Then, we dequeue everything from the ConcurrentQueue. We can't Clear() because that'll nuke the segment.
         while (!MasterQueue.IsEmpty)
         {
             MasterQueue.TryDequeue(out var _);
         }
+        while (!_jobPool.IsEmpty)
+        {
+            _jobPool.TryDequeue(out var _);
+        }
         
         // And then normally clear the normal queue we used.
         QueuedJobs.Clear();
+
+        // Now that our segment size is set, we fill the jobs pool with actual preallocated jobs ready for scheduling.
+        for (var i = 0; i < settings.MaxExpectedConcurrentJobs; i++)
+        {
+            // this will automatically pool
+            new Job(settings.MaxExpectedConcurrentJobs - 1, this);
+        }
 
         InitAlgorithm(threads, _maxConcurrentJobs, CancellationTokenSource.Token);
 
@@ -163,13 +156,7 @@ public partial class JobScheduler : IDisposable
     /// <summary>
     /// Jobs scheduled by the scheduler (NOT other jobs), but not yet flushed to the threads
     /// </summary>
-    private List<JobMeta> QueuedJobs { get; }
-
-    /// <summary>
-    /// Tracks each job from scheduling to completion; when they complete, however, their data is removed from the pool and recycled.
-    /// Note that we have to lock this, and can't use a ReaderWriterLock/ReaderWriterLockSlim because those allocate.
-    /// </summary>
-    private JobPool JobPool { get; }
+    private List<Job> QueuedJobs { get; }
 
     /// <summary>
     /// Returns whether this is the main thread the scheduler was created on
@@ -194,42 +181,37 @@ public partial class JobScheduler : IDisposable
 
         _dependencyCache.Clear();
 
-        if (dependencies != null)
+        if (dependencies is not null)
         {
             foreach (var d in dependencies)
             {
-                _dependencyCache.Add(d.JobId);
+                _dependencyCache.Add(d);
             }
         }
-        if (dependency != null)
+        if (dependency is not null)
         {
-            _dependencyCache.Add(dependency.Value.JobId);
+            _dependencyCache.Add(dependency.Value);
         }
 
-        JobId jobId;
-        bool ready;
-        lock (JobPool)
+        Job pooledJob;
+        // This will never fail due to concurrency issues because we're the only ones allowed to dequeue
+        while (!_jobPool.TryDequeue(out pooledJob))
         {
-            if (_strictAllocationMode && JobPool.JobCount >= _maxConcurrentJobs)
+            if (_strictAllocationMode)
             {
                 throw new MaximumConcurrentJobCountExceededException();
             }
-            jobId = JobPool.Schedule(_dependencyCache, job, out ready);
+            // We are spontaneously allocating, so to save memory, don't use an initial size
+            // This will automatically pool!
+            new Job(0, this);
         }
 
-        var handle = new JobHandle(this, jobId);
-        var jobMeta = new JobMeta(jobId, job);
+        var handle = pooledJob.Schedule(job, _dependencyCache, out bool ready);
 
         // if we're ready, we can go ahead and prep the job. If not, we leave that up to the dependencies.
         if (ready)
         {
-            // we only lock in debug mode for strict flushed-jobs checking within Complete()
-#if DEBUG
-            lock (QueuedJobs)
-#endif
-            {
-                QueuedJobs.Add(jobMeta);
-            }
+            QueuedJobs.Add(pooledJob);
         }
         return handle;
     }
@@ -297,22 +279,16 @@ public partial class JobScheduler : IDisposable
             return;
         }
 
-        // we only lock in debug mode for strict flushed-jobs checking within Complete()
-#if DEBUG
-        lock (QueuedJobs)
-#endif
+        // QueuedJobs is guaranteed to only contain jobs that are ready
+        foreach (var job in QueuedJobs)
         {
-            // QueuedJobs is guaranteed to only contain jobs that are ready
-            foreach (var job in QueuedJobs)
-            {
-                // because this is a concurrentqueue (linkedlist implementation under the hood)
-                // we don't have to worry about ordering issues (if someone dequeues while we do this, it'll just take the first one we added, which is fine)
-                MasterQueue.Enqueue(job);
-            }
-
-            // clear the the incoming queue
-            QueuedJobs.Clear();
+            // because this is a concurrentqueue (linkedlist implementation under the hood)
+            // we don't have to worry about ordering issues (if someone dequeues while we do this, it'll just take the first one we added, which is fine)
+            MasterQueue.Enqueue(job);
         }
+
+        // clear the the incoming queue
+        QueuedJobs.Clear();
 
         // algorithm 1
         _notifier.NotifyOne();
@@ -321,48 +297,25 @@ public partial class JobScheduler : IDisposable
     /// <summary>
     /// Blocks the thread until the given job ID has been completed. Can be called from Jobs.
     /// </summary>
-    /// <param name="jobID"></param>
+    /// <param name="handle"></param>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal void Complete(JobId jobID)
+    internal void Complete(JobHandle handle)
     {
-        CheckIfJobIsFlushed(jobID);
-        ManualResetEvent handle;
-
-        lock (JobPool)
+        if (handle.Job.TrySubscribe(handle.Version, out var waitHandle))
         {
-            // if we're already done with this job; we don't care about signals.
-            if (JobPool.IsComplete(jobID)) return;
-
-            // increments a subscription counter. This ensures that the job that completes this will ping the handle and won't dispose it yet.
-            // If we didn't have this, there would be a race condition between multiple threads which wait for a job's completion.
-            handle = JobPool.AwaitJob(jobID);
-        }
-
-        handle.WaitOne();
-
-        lock (JobPool)
-        {
-            // Return to pool. Ensures that nobody else is subscribed first, so this will always be the last person to have subscribed to a handle.
-            // Once the last one of these returns, we can recycle the handle and the jobID
-            JobPool.SetJob(jobID);
+            waitHandle.WaitOne();
+            handle.Job.Unsubscribe(handle.Version);
         }
     }
 
-    [Conditional("DEBUG")]
-    private void CheckIfJobIsFlushed(JobId jobID)
+    /// <summary>
+    /// Called exclusively from <see cref="Job"/> when it wants to pool itself.
+    /// </summary>
+    /// <param name="job"></param>
+    internal void PoolJob(Job job)
     {
-        lock (QueuedJobs)
-        {
-            foreach (var job in QueuedJobs)
-            {
-                if (job.JobID == jobID)
-                {
-                    throw new InvalidOperationException($"Cannot wait on a job that is not flushed to the workers! Call {nameof(Flush)} first.");
-                }
-            }
-        }
+        _jobPool.Enqueue(job);
     }
-
 
     /// <summary>
     /// Disposes all internals and notifies all threads to cancel.
@@ -376,13 +329,8 @@ public partial class JobScheduler : IDisposable
 
         // notify all threads to cancel
         CancellationTokenSource.Cancel(false);
-        // we only lock in debug mode for strict flushed-jobs checking within Complete()
-#if DEBUG
-        lock (QueuedJobs)
-#endif
-        {
-            QueuedJobs.Clear();
-        }
+
+        QueuedJobs.Clear();
         MasterQueue.Clear();
 
         // notifier handles issues where threads might dispose this early for us
