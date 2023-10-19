@@ -1,4 +1,5 @@
-﻿using JobScheduler.Test.Utils;
+﻿using JobScheduler.Benchmarks.Utils.Graph;
+using JobScheduler.Test.Utils;
 
 namespace JobScheduler.Test;
 [TestFixture(0, 32)]
@@ -72,6 +73,79 @@ internal class StressTests : SchedulerTestFixture
             foreach (var job in jobs)
             {
                 Assert.That(job.Result, Is.EqualTo(w + 1));
+            }
+        }
+    }
+
+    class EmptyJob : IJob
+    {
+        public void Execute() { }
+    }
+
+    [Test]
+    [TestCase(5, 128, 500)]
+    public void StressTestGraph(int graphCount, int nodesPerGraph, int waves)
+    {
+        var handles = new JobHandle[nodesPerGraph];
+        var orderedNodes = new List<DirectedAcyclicGraph.Node>(nodesPerGraph);
+        var emptyJob = new EmptyJob();
+        for (int g = 0; g < graphCount; g++)
+        {
+            orderedNodes.Clear();
+
+            var minJobsPerRank = Math.Sqrt(nodesPerGraph);
+            var maxJobsPerRank = Math.Sqrt(nodesPerGraph) + 5;
+
+
+            var graph = GraphGenerator.GenerateRandomGraph(new()
+            {
+                EdgeChance = 0.1f,
+                MaxDegree = 4,
+                Nodes = nodesPerGraph,
+                NodesPerRank = new((int)minJobsPerRank, (int)maxJobsPerRank),
+                Seed = null
+            });
+
+            // add all the cached arrays for use in CombinedDependencies
+            void CollectNodes(DirectedAcyclicGraph.Node node)
+            {
+                if (!orderedNodes.Contains(node)) orderedNodes.Add(node);
+                foreach (var child in node.Children)
+                {
+                    CollectNodes(child);
+                }
+            }
+
+            CollectNodes(graph.RootNode);
+            // we process the nodes in increasing numerical order always
+            // that way we ensure we schedule parents before children
+            orderedNodes = orderedNodes.OrderBy(node => node.ID).ToList();
+
+            foreach (var node in orderedNodes)
+            {
+                node.Data ??= new JobHandle[node.Parents.Count];
+            }
+
+
+            // actually execute
+            for (int w = 0; w < waves; w++)
+            {
+                foreach (var node in orderedNodes)
+                {
+                    var array = (JobHandle[])node.Data!;
+                    for (int i = 0; i < array.Length; i++)
+                    {
+                        array[i] = handles[node.Parents[i].ID];
+                    }
+
+                    // here's where the duplication occurs; two schedules!
+                    handles[node.ID] = Scheduler.Schedule(emptyJob, Scheduler.CombineDependencies(array));
+                }
+                Scheduler.Flush();
+                foreach (var handle in handles)
+                {
+                    handle.Complete();
+                }
             }
         }
     }
