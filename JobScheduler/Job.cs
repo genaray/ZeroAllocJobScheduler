@@ -101,9 +101,10 @@ internal class Job
     /// <param name="readyDependents"></param>
     public void Execute(List<Job> readyDependents)
     {
+        // this had better be outside the lock! We don't want to block.
+        _work?.Execute();
         lock (_jobLock)
-        {
-            _work?.Execute();
+        { 
             _isComplete = true;
 
             foreach (var dependent in _dependents)
