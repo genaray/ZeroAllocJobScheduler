@@ -55,7 +55,7 @@ internal class CircularArray<T>
     /// <param name="b"></param>
     /// <returns></returns>
     // equivalent to grow(long b, long t) in Chase and Lev
-    public CircularArray<T> Grow(long b, long t)
+    public CircularArray<T> EnsureCapacity(long b, long t)
     {
         CircularArray<T> newArray = new(_logSize + 1);
         for (long i = t; i < b; i++)

@@ -201,7 +201,10 @@ public partial class JobScheduler : IDisposable
                 _dependencyCache.Add(d.JobId);
             }
         }
-        if (dependency != null) _dependencyCache.Add(dependency.Value.JobId);
+        if (dependency != null)
+        {
+            _dependencyCache.Add(dependency.Value.JobId);
+        }
 
         JobId jobId;
         bool ready;
@@ -289,7 +292,10 @@ public partial class JobScheduler : IDisposable
             throw new InvalidOperationException($"Can only call {nameof(Flush)} from the thread that spawned the {nameof(JobScheduler)}!");
         }
 
-        if (QueuedJobs.Count == 0) return;
+        if (QueuedJobs.Count == 0)
+        {
+            return;
+        }
 
         // we only lock in debug mode for strict flushed-jobs checking within Complete()
 #if DEBUG

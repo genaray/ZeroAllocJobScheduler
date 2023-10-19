@@ -60,7 +60,11 @@ public partial class JobScheduler
             // this isn't a perf-effecting lock because it only happens when we're done
             lock (_disposeLock)
             {
-                if (IsDisposed) return;
+                if (IsDisposed)
+                {
+                    return;
+                }
+
                 _multipleNotifier.Set();
             }
         }
@@ -71,7 +75,11 @@ public partial class JobScheduler
         {
             lock (_disposeLock)
             {
-                if (IsDisposed) return;
+                if (IsDisposed)
+                {
+                    return;
+                }
+
                 IsDisposed = true;
                 _singleNotifier.Dispose();
                 _multipleNotifier.Dispose();
@@ -203,7 +211,10 @@ public partial class JobScheduler
         {
             task = popped;
         }
-        else task = null;
+        else
+        {
+            task = null;
+        }
     }
 
     // Pushes to our own deque
@@ -219,10 +230,20 @@ public partial class JobScheduler
         {
             task = stolen;
         }
-        else task = null;
+        else
+        {
+            task = null;
+        }
     }
 
-    // Algorithm 3 [1]
+    /// <summary>
+    /// Resolves this thread's entire deque and cache; returns when empty;
+    /// </summary>
+    /// <remarks>
+    /// Based on Algorithm 3 of Lin et al. [1]
+    /// </remarks>
+    /// <param name="task"></param>
+    /// <param name="workerData"></param>
     private void ExploitTask(ref JobMeta? task, WorkerData workerData)
     {
         // if we incremented _numActives from 0 to 1, and there aren't any thieves currently active.
@@ -254,7 +275,15 @@ public partial class JobScheduler
         Interlocked.Decrement(ref _numActives);
     }
 
-    // Algorithm 5 [1]
+    /// <summary>
+    /// Steals or waits for a task.
+    /// </summary>
+    /// <remarks>
+    /// Based on Algorithm 5 of Lin et al. [1]
+    /// </remarks>
+    /// <param name="task"></param>
+    /// <param name="workerData"></param>
+    /// <returns></returns>
     private bool WaitForTask(ref JobMeta? task, WorkerData workerData)
     {
     WaitForTask:
@@ -319,7 +348,16 @@ public partial class JobScheduler
         return true;
     }
 
-    // Algorithm 4 [1]
+    /// <summary>
+    /// Runs the stealing algorithm, the key insight of Lin et al.
+    /// It steals some number of times, then begins yielding between steals, and then after a number of failed yields,
+    /// returns. If at any point it finds a task, it sets <paramref name="task"/> to the found task and returns.
+    /// </summary>
+    /// <remarks>
+    /// Based on Algorithm 4 of Lin et al. [1]
+    /// </remarks>
+    /// <param name="task"></param>
+    /// <param name="workerData"></param>
     private void ExploreTask(ref JobMeta? task, WorkerData workerData)
     {
         int numFailedSteals = 0;
@@ -343,7 +381,10 @@ public partial class JobScheduler
             }
 
             // Steal success!
-            if (task is not null) break;
+            if (task is not null)
+            {
+                break;
+            }
 
             // Steal failed.
             numFailedSteals++;
@@ -353,7 +394,10 @@ public partial class JobScheduler
                 Thread.Yield();
                 numYields++;
                 // If we've yielded too much, we give up completely and let WaitForTask decide whether to put us back to sleep (maybe)
-                if (numYields == _yieldBound) break;
+                if (numYields == _yieldBound)
+                {
+                    break;
+                }
             }
         }
     }

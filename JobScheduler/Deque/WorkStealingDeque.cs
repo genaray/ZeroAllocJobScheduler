@@ -135,7 +135,7 @@ internal class WorkStealingDeque<T>
             long actualSize = b - t;
             if (actualSize >= a.Capacity - 1)
             {
-                a = a.Grow(b, t);
+                a = a.EnsureCapacity(b, t);
                 _activeArray = a;
             }
         }
@@ -232,7 +232,10 @@ internal class WorkStealingDeque<T>
         long size = b - t;
 
         // If we're empty, don't even try.
-        if (size <= 0) return false;
+        if (size <= 0)
+        {
+            return false;
+        }
         // We know we're not empty, so give it a shot:
         T stolen = a[t];
 
