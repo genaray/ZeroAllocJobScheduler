@@ -1,5 +1,4 @@
 ﻿using NUnit.Framework.Constraints;
-using System.Runtime;
 
 namespace JobScheduler.Test.Utils.CustomConstraints;
 
@@ -8,7 +7,7 @@ namespace JobScheduler.Test.Utils.CustomConstraints;
 /// </summary>
 internal class AllocatingMemoryConstraint : Constraint
 {
-    static readonly object _gcLock = new();
+    private static readonly object _gcLock = new();
     public AllocatingMemoryConstraint() { }
     public override ConstraintResult ApplyTo<TActual>(TActual actual)
     {
@@ -25,11 +24,13 @@ internal class AllocatingMemoryConstraint : Constraint
             code.Invoke();
             allocated = heap != GC.GetAllocatedBytesForCurrentThread();
         }
+
         if (allocated)
         {
             // we DID allocate memory! So return true
             return new ConstraintResult(this, actual, true);
         }
+
         return new ConstraintResult(this, actual, false);
     }
 }

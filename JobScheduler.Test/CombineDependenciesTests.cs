@@ -57,7 +57,7 @@ internal class CombineDependenciesTests : SchedulerTestFixture
     public void CombineTwoDependenciesCanReuseList()
     {
         var list = new JobHandle[2];
-        for (int i = 0; i < 3; i++)
+        for (var i = 0; i < 3; i++)
         {
             CombineTwoDependencies(list);
         }
@@ -82,28 +82,40 @@ internal class CombineDependenciesTests : SchedulerTestFixture
         // this should be kept as low as possible to avoid long test times.
         // the goal is to get it as small as possible without the threads outrunning the main thread (because if that happens, everything will
         // complete without us testing whether it's completing in the right order!)
-        int timeout = 5;
+        var timeout = 5;
 
         List<DependencyChainElement> chain = new();
-        for (int i = 0; i < chainLength; i++)
+        for (var i = 0; i < chainLength; i++)
         {
             DependencyChainElement link = new();
-            for (int j = 0; j < jobCountPerChainLink; j++)
+            for (var j = 0; j < jobCountPerChainLink; j++)
             {
                 link.Jobs.Add(new SleepJob(timeout));
                 // each job in this link has a dependency on the entirety of the last link's CombineDependencies
-                if (chain.Any()) link.Handles.Add(Scheduler.Schedule(link.Jobs.Last(), chain.Last().ChainHandle));
+                if (chain.Any())
+                {
+                    link.Handles.Add(Scheduler.Schedule(link.Jobs.Last(), chain.Last().ChainHandle));
+                }
                 // first one doesn't need any dependencies on the last CombineDependencies
-                else link.Handles.Add(Scheduler.Schedule(link.Jobs.Last()));
+                else
+                {
+                    link.Handles.Add(Scheduler.Schedule(link.Jobs.Last()));
+                }
             }
 
             link.ChainHandle = Scheduler.CombineDependencies(link.Handles.ToArray());
 
             chain.Add(link);
-            if (flushAfterEveryLink) Scheduler.Flush();
+            if (flushAfterEveryLink)
+            {
+                Scheduler.Flush();
+            }
         }
 
-        if (!flushAfterEveryLink) Scheduler.Flush();
+        if (!flushAfterEveryLink)
+        {
+            Scheduler.Flush();
+        }
 
         return chain;
     }
@@ -116,8 +128,14 @@ internal class CombineDependenciesTests : SchedulerTestFixture
             linksComplete--;
             foreach (var job in link.Jobs)
             {
-                if (linksComplete >= 0) Assert.That(job.Result, Is.EqualTo(1));
-                else Assert.That(job.Result, Is.EqualTo(0));
+                if (linksComplete >= 0)
+                {
+                    Assert.That(job.Result, Is.EqualTo(1));
+                }
+                else
+                {
+                    Assert.That(job.Result, Is.EqualTo(0));
+                }
             }
         }
     }
@@ -134,7 +152,7 @@ internal class CombineDependenciesTests : SchedulerTestFixture
         var chain = CreateDependencyChain(chainLength, jobCountPerChainLink, flushAfterEveryLink);
 
         // complete each link in sequence and make sure our progress lines up
-        int progress = 0;
+        var progress = 0;
         foreach (var link in chain)
         {
             CheckChainProgress(chain, progress);

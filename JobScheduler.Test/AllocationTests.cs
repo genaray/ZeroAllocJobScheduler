@@ -1,12 +1,17 @@
-﻿using JobScheduler.Test.Utils;
+﻿using System.Diagnostics.CodeAnalysis;
+using JobScheduler.Test.Utils;
 using JobScheduler.Test.Utils.CustomConstraints;
-using System.Diagnostics.CodeAnalysis;
-using System.Reflection.Metadata;
 
 namespace JobScheduler.Test;
 
 [SuppressMessage("Assertion", "NUnit2045:Use Assert.Multiple",
     Justification = "Multiple asserts are not appropriate as later code")]
+[SuppressMessage("Style", "IDE0053:Use expression body for lambda expression",
+    Justification = "Lambda block bodies are necessary for NUnit to recognize the lambda as a TestDelegate.")]
+[SuppressMessage("Style", "IDE0200:Remove unnecessary lambda expression",
+    Justification = "Lambda block bodies are necessary for NUnit to recognize the lambda as a TestDelegate.")]
+[SuppressMessage("Style", "IDE0002:Name can be simplified",
+    Justification = "While NUnit.Framework.Is.Not is lexically simpler, it is stylistically more complex.")]
 internal class AllocationTests : SchedulerTestFixture
 {
     public AllocationTests(int threads) : base(threads) { }
@@ -55,8 +60,15 @@ internal class AllocationTests : SchedulerTestFixture
 
         Assert.That(() => { handle = Scheduler.Schedule(job); }, Is.Not.AllocatingMemory());
         Assert.That(() => { Scheduler.Flush(); }, Is.Not.AllocatingMemory());
-        if (manuallyComplete) Assert.That(() => { handle.Complete(); }, Is.Not.AllocatingMemory());
-        else Thread.Sleep(100);
+        if (manuallyComplete)
+        {
+            Assert.That(() => { handle.Complete(); }, Is.Not.AllocatingMemory());
+        }
+        else
+        {
+            Thread.Sleep(100);
+        }
+
         Assert.That(() => { handle2 = Scheduler.Schedule(job); }, Is.Not.AllocatingMemory());
         Assert.That(() => { Scheduler.Flush(); }, Is.Not.AllocatingMemory());
         Assert.That(() => { handle2.Complete(); }, Is.Not.AllocatingMemory());
@@ -102,7 +114,6 @@ internal class AllocationTests : SchedulerTestFixture
         Assert.That(() => { handle1.Complete(); }, Is.Not.AllocatingMemory());
     }
 
-
     [Test]
     public void CombinedJobsDoNotAllocate()
     {
@@ -133,19 +144,21 @@ internal class AllocationTests : SchedulerTestFixture
 
         Assert.That(() =>
         {
-            for (int w = 0; w < waves; w++)
+            for (var w = 0; w < waves; w++)
             {
-                for (int i = 0; i < jobs; i++)
+                for (var i = 0; i < jobs; i++)
                 {
                     handles[i] = Scheduler.Schedule(job);
                 }
+
                 Scheduler.Flush();
-                for (int i = 0; i < jobs; i++)
+                for (var i = 0; i < jobs; i++)
                 {
                     handles[i].Complete();
                 }
             }
-            for (int i = 0; i < jobs; i++)
+
+            for (var i = 0; i < jobs; i++)
             {
                 handles[i] = Scheduler.Schedule(job);
             }
@@ -167,6 +180,10 @@ internal class AllocationTests : SchedulerTestFixture
 [TestFixture(4, 128)]
 [TestFixture(8, 128)]
 [TestFixture(16, 128)]
+[SuppressMessage("Assertion", "NUnit2045:Use Assert.Multiple",
+    Justification = "Multiple asserts are not appropriate as later code")]
+[SuppressMessage("Style", "IDE0002:Name can be simplified",
+    Justification = "While NUnit.Framework.Is.Not is lexically simpler, it is stylistically more complex.")]
 internal class NonStrictAllocationTests : SchedulerTestFixture
 {
     public NonStrictAllocationTests(int threads, int maxJobs) : base(threads)
@@ -174,7 +191,10 @@ internal class NonStrictAllocationTests : SchedulerTestFixture
         MaxExpectedConcurrentJobs = maxJobs;
     }
 
-    protected override bool StrictAllocationMode => false;
+    protected override bool StrictAllocationMode
+    {
+        get => false;
+    }
 
     protected override int MaxExpectedConcurrentJobs { get; }
 
@@ -182,19 +202,20 @@ internal class NonStrictAllocationTests : SchedulerTestFixture
     [TestCase(100)]
     public void NonStrictModeAllocatesCorrectly(int waves)
     {
-        int jobs = MaxExpectedConcurrentJobs;
+        var jobs = MaxExpectedConcurrentJobs;
         var job = new SleepJob(0);
         var handles = new JobHandle[jobs];
         Assert.That(() =>
         {
-            for (int w = 0; w < waves; w++)
+            for (var w = 0; w < waves; w++)
             {
-                for (int i = 0; i < jobs; i++)
+                for (var i = 0; i < jobs; i++)
                 {
                     handles[i] = Scheduler.Schedule(job);
                 }
+
                 Scheduler.Flush();
-                for (int i = 0; i < jobs; i++)
+                for (var i = 0; i < jobs; i++)
                 {
                     handles[i].Complete();
                 }
@@ -203,8 +224,10 @@ internal class NonStrictAllocationTests : SchedulerTestFixture
 
         Assert.That(() =>
         {
-            for (int i = 0; i < jobs; i++)
+            for (var i = 0; i < jobs; i++)
+            {
                 handles[i] = Scheduler.Schedule(job);
+            }
         }, Is.Not.AllocatingMemory());
 
         Assert.That(() => { var badHandle = Scheduler.Schedule(job); },

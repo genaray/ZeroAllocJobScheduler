@@ -13,67 +13,74 @@ public class QueueBenchmark
     /// </summary>
     [Params(32)] public int Reps;
 
-    Queue<int> Queue = null!;
-    ConcurrentQueue<int> ConcurrentQueue = null!;
+    private Queue<int> _queue = null!;
+
+    private ConcurrentQueue<int> _concurrentQueue = null!;
 
     [IterationSetup]
     public void Setup()
     {
-        Queue = new Queue<int>();
-        ConcurrentQueue = new ConcurrentQueue<int>();
+        _queue = new Queue<int>();
+        _concurrentQueue = new ConcurrentQueue<int>();
 
-        for (int i = 0; i < QueueCapacity; i++)
+        for (var i = 0; i < QueueCapacity; i++)
         {
-            ConcurrentQueue.Enqueue(0);
-            Queue.Enqueue(0);
+            _concurrentQueue.Enqueue(0);
+            _queue.Enqueue(0);
         }
-        ConcurrentQueue.Clear();
-        Queue.Clear();
+
+        _concurrentQueue.Clear();
+        _queue.Clear();
     }
 
     [IterationCleanup]
     public void Cleanup()
     {
-        ConcurrentQueue = null!;
-        Queue = null!;
+        _concurrentQueue = null!;
+        _queue = null!;
     }
 
     [Benchmark]
     public void BenchmarkConcurrentQueue()
     {
-        for (int r = 0; r < Reps; r++)
+        for (var r = 0; r < Reps; r++)
         {
-            for (int i = 0; i < QueueCapacity; i++)
+            for (var i = 0; i < QueueCapacity; i++)
             {
-                ConcurrentQueue.Enqueue(0);
+                _concurrentQueue.Enqueue(0);
             }
-            ConcurrentQueue.Clear();
+
+            _concurrentQueue.Clear();
         }
     }
 
     [Benchmark]
     public void BenchmarkConcurrentQueueWithDequeue()
     {
-        for (int r = 0; r < Reps; r++)
+        for (var r = 0; r < Reps; r++)
         {
-            for (int i = 0; i < QueueCapacity; i++)
+            for (var i = 0; i < QueueCapacity; i++)
             {
-                ConcurrentQueue.Enqueue(0);
+                _concurrentQueue.Enqueue(0);
             }
-            while (ConcurrentQueue.TryDequeue(out var _)) { }
+
+            while (_concurrentQueue.TryDequeue(out var _))
+            {
+            }
         }
     }
 
     [Benchmark]
     public void BenchmarkQueue()
     {
-        for (int r = 0; r < Reps; r++)
+        for (var r = 0; r < Reps; r++)
         {
-            for (int i = 0; i < QueueCapacity; i++)
+            for (var i = 0; i < QueueCapacity; i++)
             {
-                Queue.Enqueue(0);
+                _queue.Enqueue(0);
             }
-            Queue.Clear();
+
+            _queue.Clear();
         }
     }
 }

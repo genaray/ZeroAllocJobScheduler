@@ -6,7 +6,10 @@ internal class CompleteTests : SchedulerTestFixture
 {
     public CompleteTests(int threads) : base(threads) { }
 
-    protected override bool StrictAllocationMode => false;
+    protected override bool StrictAllocationMode
+    {
+        get => false;
+    }
 
     [Test]
     public void OneJobCompletes()
@@ -89,7 +92,10 @@ internal class CompleteTests : SchedulerTestFixture
 
         Scheduler.Flush();
 
-        foreach (var handle in handles) handle.Complete();
+        foreach (var handle in handles)
+        {
+            handle.Complete();
+        }
 
         CollectionAssert.AreEqual(jobs.Select(job => job.Result), Enumerable.Repeat(1, jobCount).ToList());
     }

@@ -1,4 +1,4 @@
-using System.Diagnostics;
+using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 
 [assembly: CLSCompliant(true)]
@@ -62,7 +62,10 @@ public partial class JobScheduler : IDisposable
     private int _threadsAlive = 0;
 
     // internally visible for testing
-    internal int ThreadsAlive => _threadsAlive;
+    internal int ThreadsAlive
+    {
+        get => _threadsAlive;
+    }
 
     private readonly bool _strictAllocationMode;
     private readonly int _maxConcurrentJobs;
@@ -100,23 +103,24 @@ public partial class JobScheduler : IDisposable
         {
             QueuedJobs.Add(null!); // this null is temporary
         }
-        
+
         // ... then, we initialize the ConcurrentQueue with that collection. The segment size will be set to the count.
         // Note that this line WILL produce garbage due to IEnumerable iteration! (always boxes multiple enumerator structs)
         MasterQueue = new(QueuedJobs);
         // We also do the pool, just to have the segment size.
         _jobPool = new(QueuedJobs);
-        
+
         // Then, we dequeue everything from the ConcurrentQueue. We can't Clear() because that'll nuke the segment.
         while (!MasterQueue.IsEmpty)
         {
             MasterQueue.TryDequeue(out var _);
         }
+
         while (!_jobPool.IsEmpty)
         {
             _jobPool.TryDequeue(out var _);
         }
-        
+
         // And then normally clear the normal queue we used.
         QueuedJobs.Clear();
 
@@ -135,7 +139,7 @@ public partial class JobScheduler : IDisposable
         // spawn all the child threads
         for (var i = 0; i < threads; i++)
         {
-            int c = i;
+            var c = i;
             var thread = new Thread(WorkerLoop)
             {
                 Name = $"{settings.ThreadPrefixName}{i}"
@@ -162,7 +166,10 @@ public partial class JobScheduler : IDisposable
     /// <summary>
     /// Returns whether this is the main thread the scheduler was created on
     /// </summary>
-    private bool IsMainThread => Thread.CurrentThread.ManagedThreadId == MainThreadID;
+    private bool IsMainThread
+    {
+        get => Thread.CurrentThread.ManagedThreadId == MainThreadID;
+    }
 
     /// <summary>
     ///     Schedules a <see cref="IJob"/> and returns its <see cref="JobHandle"/>.
@@ -189,6 +196,7 @@ public partial class JobScheduler : IDisposable
                 _dependencyCache.Add(d);
             }
         }
+
         if (dependency is not null)
         {
             _dependencyCache.Add(dependency.Value);
@@ -207,13 +215,14 @@ public partial class JobScheduler : IDisposable
             new Job(0, this);
         }
 
-        var handle = pooledJob.Schedule(job, _dependencyCache, out bool ready);
+        var handle = pooledJob.Schedule(job, _dependencyCache, out var ready);
 
         // if we're ready, we can go ahead and prep the job. If not, we leave that up to the dependencies.
         if (ready)
         {
             QueuedJobs.Add(pooledJob);
         }
+
         return handle;
     }
 
@@ -231,9 +240,9 @@ public partial class JobScheduler : IDisposable
         {
             CheckForSchedulerEquality(dependency.Value);
         }
+
         return Schedule(job, dependency, null);
     }
-
 
     /// <summary>
     ///     Combine multiple dependencies into a single <see cref="JobHandle"/> which is scheduled.
@@ -248,6 +257,7 @@ public partial class JobScheduler : IDisposable
         {
             CheckForSchedulerEquality(dependency);
         }
+
         return Schedule(null, null, dependencies);
     }
 

@@ -11,7 +11,11 @@ internal class JobSchedulerTests : SchedulerTestFixture
     {
         SuppressDispose = true;
         var numThreads = ThreadCount;
-        if (numThreads <= 0) numThreads = Environment.ProcessorCount;
+        if (numThreads <= 0)
+        {
+            numThreads = Environment.ProcessorCount;
+        }
+
         Thread.Sleep(10); // wait for threads to spawn
         Assert.That(Scheduler.ThreadsAlive, Is.EqualTo(numThreads));
         Scheduler.Dispose();
@@ -67,7 +71,7 @@ internal class JobSchedulerTests : SchedulerTestFixture
 
     private class CompleteJob : IJob
     {
-        readonly JobHandle _handle;
+        private readonly JobHandle _handle;
         public CompleteJob(JobHandle handle)
         {
             _handle = handle;

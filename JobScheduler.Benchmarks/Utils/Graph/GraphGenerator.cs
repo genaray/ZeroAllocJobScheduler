@@ -41,18 +41,21 @@ public class GraphGenerator
 
         Dictionary<int, Node> nodes = new();
 
-        int totalNodes = 0;
-        int goalNodes = config.Nodes - 1; // exclude root node
+        var totalNodes = 0;
+        var goalNodes = config.Nodes - 1; // exclude root node
 
         while (totalNodes < goalNodes)
         {
-            int newNodes = r.Next(config.NodesPerRank.Start.Value, config.NodesPerRank.End.Value);
+            var newNodes = r.Next(config.NodesPerRank.Start.Value, config.NodesPerRank.End.Value);
 
             // if we've exceeded our desired node count, only go up to the limit for the very last rank
-            if (newNodes + totalNodes > goalNodes) newNodes = goalNodes - totalNodes;
+            if (newNodes + totalNodes > goalNodes)
+            {
+                newNodes = goalNodes - totalNodes;
+            }
 
             // add all the new nodes
-            for (int newNode = totalNodes; newNode < totalNodes + newNodes; newNode++)
+            for (var newNode = totalNodes; newNode < totalNodes + newNodes; newNode++)
             {
                 // + 1 to leave room for a root node ID; just for DOT (we don't actually use the node ID in this algo)
                 nodes[newNode] = new Node(newNode + 1);
@@ -60,13 +63,21 @@ public class GraphGenerator
 
             // check pairs of new nodes and old nodes from all previous ranks and make edges
             // randomized to prevent bias towards already-seen nodes from the degree limit
-            foreach (int node in Enumerable.Range(0, totalNodes).OrderBy(x => r.Next()))
+            foreach (var node in Enumerable.Range(0, totalNodes).OrderBy(x => r.Next()))
             {
-                foreach (int newNode in Enumerable.Range(totalNodes, newNodes).OrderBy(x => r.Next()))
+                foreach (var newNode in Enumerable.Range(totalNodes, newNodes).OrderBy(x => r.Next()))
                 {
                     // if we break the degree, don't even try to make a node between these two nodes
-                    if (nodes[node].Degree >= config.MaxDegree) continue;
-                    if (nodes[newNode].Degree >= config.MaxDegree) continue;
+                    if (nodes[node].Degree >= config.MaxDegree)
+                    {
+                        continue;
+                    }
+
+                    if (nodes[newNode].Degree >= config.MaxDegree)
+                    {
+                        continue;
+                    }
+
                     if (r.NextSingle() < config.EdgeChance)
                     {
                         nodes[node].Children.Add(nodes[newNode]);

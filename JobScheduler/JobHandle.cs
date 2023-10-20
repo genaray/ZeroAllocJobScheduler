@@ -20,7 +20,7 @@ public readonly struct JobHandle
         Scheduler = scheduler;
         Job = job;
     }
-    
+
     /// <summary>
     ///     The <see cref="JobScheduler"/> used by this scheduled job.
     /// </summary>
@@ -31,7 +31,7 @@ public readonly struct JobHandle
     ///     May not be the current job, if the version is expired.
     /// </summary>
     internal Job Job { get; }
-    
+
     /// <summary>
     ///     The job version used by this scheduled job. If this doesn't match <see cref="Job"/>, it means
     ///     the job is completed.

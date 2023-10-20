@@ -37,16 +37,19 @@ internal class QueueAllocationTests
         Queue<BigStruct> cacheQueue = new();
 
         // cache
-        for (int i = 0; i < n; i++)
+        for (var i = 0; i < n; i++)
         {
             cacheQueue.Enqueue(default);
         }
 
         ConcurrentQueue<BigStruct> queue = new(cacheQueue);
 
-        while (!queue.IsEmpty) queue.TryDequeue(out var _);
+        while (!queue.IsEmpty)
+        {
+            queue.TryDequeue(out var _);
+        }
 
-        for (int i = 0; i < n; i++)
+        for (var i = 0; i < n; i++)
         {
             Assert.That(() => { queue.Enqueue(default); }, Is.Not.AllocatingMemory());
         }

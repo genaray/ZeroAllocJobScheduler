@@ -19,18 +19,23 @@ internal class GraphGeneratorTests
             MaxDegree = maxDegree,
             Nodes = nodes,
             NodesPerRank = new(Math.Max((int)MathF.Sqrt(nodes) - 5, 0), (int)MathF.Sqrt(nodes) + 5), // make approximately square graph
-            Seed = nodes * 3 + maxDegree * 13 + (int)(edgeChance * 11)
+            Seed = (nodes * 3) + (maxDegree * 13) + (int)(edgeChance * 11)
         });
 
-        TestContext.Out.WriteLine(graph.ToString()); // log to output so we can check with a DOT viewer
+        // Enable this line to log to output so we can check with a DOT viewer.
+        // Don't leave it enabled, though -- it clogs test output and NUnit interprets it as a warning.
+        // TestContext.Out.WriteLine(graph.ToString());
 
         HashSet<int> allNodes = new();        
 
-        void TraverseNode(DirectedAcyclicGraph.Node node, bool isRoot, bool wasRoot)
+        void traverseNode(DirectedAcyclicGraph.Node node, bool isRoot, bool wasRoot)
         {
             allNodes.Add(node.ID);
             // exclude root node from degree validation
-            if (!isRoot && !wasRoot) Assert.That(node.Degree, Is.LessThanOrEqualTo(maxDegree));
+            if (!isRoot && !wasRoot)
+            {
+                Assert.That(node.Degree, Is.LessThanOrEqualTo(maxDegree));
+            }
 
             // we expect level 1 nodes (directly underneath root) to have a single parent (root) and also match our degree constraint
             if (wasRoot)
@@ -45,11 +50,11 @@ internal class GraphGeneratorTests
             foreach (var child in node.Children)
             {
                 Assert.That(child.Parents, Contains.Item(node));
-                TraverseNode(child, false, isRoot);
+                traverseNode(child, false, isRoot);
             }
         }
 
-        TraverseNode(graph.RootNode, true, false);
+        traverseNode(graph.RootNode, true, false);
         Assert.That(allNodes, Has.Count.EqualTo(nodes));
     }
 }

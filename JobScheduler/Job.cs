@@ -1,5 +1,4 @@
-﻿using Microsoft.Extensions.ObjectPool;
-using System.Diagnostics;
+﻿using System.Diagnostics;
 
 namespace JobScheduler;
 
@@ -10,34 +9,34 @@ namespace JobScheduler;
 internal class Job
 {
     // the scheduler this job was created with
-    readonly JobScheduler _scheduler;
+    private readonly JobScheduler _scheduler;
 
     // The version of this job. Many methods must have a version passed in. If that doesn't match ours,
     // it means the job is already complete.
-    int _version = 0;
+    private int _version = 0;
 
     // The actual code of the job.
-    IJob? _work;
+    private IJob? _work;
 
     // The Handle of the job. 
-    readonly ManualResetEvent _waitHandle;
+    private readonly ManualResetEvent _waitHandle;
 
     // The list of dependents this job has (NOT dependencies!)
     // When this job completes it will decrease the <see cref="DependencyCount"/> of any dependents.
-    readonly List<Job> _dependents;
+    private readonly List<Job> _dependents;
 
     // The number of Dependencies (NOT dependants!) that must complete before this job can be added to the queue
-    int _dependencyCount = 0;
+    private int _dependencyCount = 0;
 
     // When this hits 0, we can dispose the WaitHandle, and send ourselves back to the pool.
-    int _waitHandleSubscriptionCount = 0;
+    private int _waitHandleSubscriptionCount = 0;
 
     // Whether this job is complete (i.e. needs to still be around while we wait for other threads to finish their
     // Complete() before we can pool).
-    bool _isComplete = false;
+    private bool _isComplete = false;
 
     // The per-job lock for each job instance.
-    readonly object _jobLock = new();
+    private readonly object _jobLock = new();
 
     /// <summary>
     /// Create a new <see cref="Job"/> with dependent capacity <paramref name="dependentCapacity"/>, ready for scheduling.
@@ -83,6 +82,7 @@ internal class Job
                     {
                         continue;
                     }
+
                     handle.Job._dependents.Add(this);
                     _dependencyCount++;
                 }
@@ -104,7 +104,7 @@ internal class Job
         // this had better be outside the lock! We don't want to block.
         _work?.Execute();
         lock (_jobLock)
-        { 
+        {
             _isComplete = true;
 
             foreach (var dependent in _dependents)
