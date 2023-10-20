@@ -122,17 +122,17 @@ internal class WorkStealingDeque<T>
     /// <param name="item">The item to add.</param>
     public void PushBottom(T item)
     {
-        long b = Volatile.Read(ref _bottom);
+        var b = Volatile.Read(ref _bottom);
         CircularArray<T> a = _activeArray;
 
         // we use the cached value per section 2.3, to avoid a blocking top read
-        long sizeUpperBound = b - _lastTopValue;
+        var sizeUpperBound = b - _lastTopValue;
         if (sizeUpperBound >= a.Capacity - 1)
         {
             // we think we might need a resize, but we're not sure, so access the volatile variable.
             var t = Interlocked.Read(ref _top);
             _lastTopValue = t; // cache it
-            long actualSize = b - t;
+            var actualSize = b - t;
             if (actualSize >= a.Capacity - 1)
             {
                 a = a.EnsureCapacity(b, t);
@@ -161,7 +161,7 @@ internal class WorkStealingDeque<T>
         // we make no guarantees about what this even does if we return false
         item = default!;
 
-        long b = Volatile.Read(ref _bottom);
+        var b = Volatile.Read(ref _bottom);
         CircularArray<T> a = _activeArray;
 
         // we're popping, so decrement the bottom in advance.
@@ -173,8 +173,8 @@ internal class WorkStealingDeque<T>
         Volatile.Write(ref _bottom, b);
 
         // check the size...
-        long t = Interlocked.Read(ref _top);
-        long size = b - t;
+        var t = Interlocked.Read(ref _top);
+        var size = b - t;
 
         // if we were empty before, we're still empty, so we just make sure we're canon (top == bottom).
         if (size < 0)
@@ -222,14 +222,14 @@ internal class WorkStealingDeque<T>
     {
         // We make no guarantees about what this even does if we return false
         item = default!;
-        long t = Interlocked.Read(ref _top);
-        long b = Volatile.Read(ref _bottom);
+        var t = Interlocked.Read(ref _top);
+        var b = Volatile.Read(ref _bottom);
         // In case the array gets resized, we grab a reference to the old one.
         // That will protect it from the GC while we do this method.
         // Since the array (in this implementation) only gets resized on push, the top index must be where we expect.
         // Unless the top index changes: in which case we got out-raced and we'll exit later.
         CircularArray<T> a = _activeArray;
-        long size = b - t;
+        var size = b - t;
 
         // If we're empty, don't even try.
         if (size <= 0)
