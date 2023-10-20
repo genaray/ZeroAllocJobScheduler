@@ -1,6 +1,7 @@
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+
+[assembly: CLSCompliant(true)]
 
 namespace JobScheduler;
 
