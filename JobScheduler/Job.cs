@@ -18,6 +18,12 @@ internal class Job
     // The actual code of the job.
     private IJob? _work;
 
+    private IJobParallelFor? _parallelWork;
+    private JobHandle? _masterJob;
+    private int _parallelWorkIndex;
+    private int _totalParallelWork;
+    private volatile int _parallelSubscribers;
+
     // The Handle of the job. 
     private readonly ManualResetEvent _waitHandle;
 
@@ -61,12 +67,38 @@ internal class Job
     /// <param name="work"></param>
     /// <param name="dependencies"></param>
     /// <param name="ready"></param>
+    /// <param name="parallelWork"></param>
+    /// <param name="masterJob"></param>
+    /// <param name="amount"></param>
     /// <returns></returns>
-    public JobHandle Schedule(IJob? work, List<JobHandle> dependencies, out bool ready)
+    public JobHandle Schedule(IJob? work, List<JobHandle> dependencies, out bool ready, IJobParallelFor? parallelWork = null, JobHandle? masterJob = null, int amount = 0)
     {
         lock (_jobLock)
         {
-            // at this point, nobody should be decreasing our dependency count, since we just came from the pool
+            // Special parallel scheduling
+            if (parallelWork is not null)
+            {
+                if (work is not null)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(amount));
+                }
+
+                if (amount <= 0)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(amount));
+                }
+
+                _masterJob = masterJob;
+                _parallelWork = parallelWork;
+                // if masterJob is null, we set it to our own handle later.
+                if (masterJob is null)
+                {
+                    _parallelWorkIndex = -1;
+                    _totalParallelWork = amount;
+                }
+            }
+
+            // At this point, nobody should be decreasing our dependency count, since we just came from the pool
             Debug.Assert(_dependencyCount == 0);
 
             foreach (var handle in dependencies)
@@ -91,7 +123,14 @@ internal class Job
             ready = _dependencyCount == 0; // we don't have any active dependencies
             _work = work;
 
-            return new(_scheduler, _version, this);
+            JobHandle thisHandle = new(_scheduler, _version, this);
+
+            if (_parallelWork is not null && _masterJob is null)
+            {
+                _masterJob = thisHandle;
+            }
+
+            return thisHandle;
         }
     }
 
@@ -103,6 +142,65 @@ internal class Job
     {
         // this had better be outside the lock! We don't want to block.
         _work?.Execute();
+
+        // Special parallel execution
+        if (_parallelWork is not null)
+        {
+            Debug.Assert(_masterJob is not null);
+            Debug.Assert(_work is null);
+
+            // RACE CONDITION: If _masterJob decrements and kills itself, how do we confirm it's complete?
+            // The fix is to use the TrySubscribe pattern, and Unsubscribe once we're done. Then, we ensure the master
+            // job cannot kill itself until all subscribers have finished!
+            // Also, If this is ourself, this will run fine.
+            if (_masterJob.Value.Job.TrySubscribeToParallel(_masterJob.Value.Version))
+            {
+                while (true)
+                {
+                    // TODO: This is the slowest part about this; it's the naive solution.
+                    // It should be replaced by a batched CAS with work-stealing.
+                    // That way we would only need to CAS when we steal once every batch!
+                    // I'm pretty sure a "fake work stealing deque" could be created with a Chase-Lev deque that tracks an int range
+                    // instead of actual elements.
+                    // However, the difficult part is the actual work-stealing algorithm: I don't think Lin et al. is the correct
+                    // route here, because parallel jobs generally run fast enough that thereads won't be contending enough to justify
+                    // sleep. So I think a simplified version is the way to go.
+                    var val = Interlocked.Increment(ref _masterJob.Value.Job._parallelWorkIndex);
+                    if (val >= _masterJob.Value.Job._totalParallelWork)
+                    {
+                        break;
+                    }
+
+                    _parallelWork.Execute(val);
+                }
+
+                _masterJob.Value.Job.UnsubscribeFromParallel(_masterJob.Value.Version);
+            }
+
+            // If we were the master job, and someone is still waiting, we're not allowed to continue until they've unsubscribed.
+            // Since we know at this point that we're done with all/most of the execution (we have a max 1 execution per thread left)
+            // we just spin until they make it.
+            if (_masterJob.Value.Job == this && _parallelSubscribers > 0)
+            {
+                var spin = new SpinWait();
+
+                // We're positive that _parallelSubscribers can never increase at this point, because _parallelWorkLeft is 0 or less.
+                // (all TrySubscribeToParallel will fail).
+                // So we don't have to lock while checking.
+                // And because _parallelSubscribers is volatile, there won't be any non-atomic nonsense with the decrementing.
+                while (_parallelSubscribers > 0)
+                {
+                    spin.SpinOnce();
+                }
+            }
+        }
+
+        // You may think that we have to manage parallel dependencies here, but actually we don't!
+        // The handle is for the master job, always. And if we're the master job, we're about to resolve those.
+        // If we're not the master job, then we won't have any dependents, and we'll mark ourselves as complete and exit.
+        // The master job has the exact same dependenc*ies* as all the rest of us, so it'll execute via work-stealing
+        // very very soon and complete its handle as necessary, firing any dependents.
+
         lock (_jobLock)
         {
             _isComplete = true;
@@ -132,6 +230,29 @@ internal class Job
             {
                 PoolSelf();
             }
+        }
+    }
+
+    private void UnsubscribeFromParallel(int version)
+    {
+        lock (_jobLock)
+        {
+            Debug.Assert(version == _version);
+            _parallelSubscribers--;
+        }
+    }
+
+    private bool TrySubscribeToParallel(int version)
+    {
+        lock (_jobLock)
+        {
+            if (_version != version || _isComplete || _parallelWorkIndex >= _totalParallelWork)
+            {
+                return false;
+            }
+
+            _parallelSubscribers++;
+            return true;
         }
     }
 
@@ -182,6 +303,10 @@ internal class Job
     private void PoolSelf()
     {
         _version++;
+        _parallelWork = null;
+        _parallelWorkIndex = 0;
+        _parallelSubscribers = 0;
+        _totalParallelWork = 0;
         _dependents.Clear();
         _dependencyCount = 0;
         _waitHandleSubscriptionCount = 0;
