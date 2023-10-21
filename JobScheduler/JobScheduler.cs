@@ -134,7 +134,7 @@ public partial class JobScheduler : IDisposable
         for (var i = 0; i < settings.MaxExpectedConcurrentJobs; i++)
         {
             // this will automatically pool
-            new Job(settings.MaxExpectedConcurrentJobs - 1, this);
+            new Job(settings.MaxExpectedConcurrentJobs - 1, ThreadCount, this);
         }
 
         InitAlgorithm(ThreadCount, _maxConcurrentJobs, CancellationTokenSource.Token);
@@ -189,7 +189,7 @@ public partial class JobScheduler : IDisposable
             }
             // We are spontaneously allocating, so to save memory, don't use an initial size
             // This will automatically pool!
-            new Job(0, this);
+            new Job(0, ThreadCount, this);
         }
 
         return job;
@@ -245,7 +245,15 @@ public partial class JobScheduler : IDisposable
         // Schedule a parallel job
         else
         {
+            if (parallelWork.BatchSize <= 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(parallelWork.BatchSize));
+            }
+
             var threads = parallelWork.ThreadCount <= 0 ? ThreadCount : Math.Min(parallelWork.ThreadCount, ThreadCount);
+            var batches = (int)MathF.Ceiling(amount / (float)parallelWork.BatchSize);
+            threads = Math.Min(threads, batches);
+
             for (var i = 0; i < threads; i++)
             {
                 var pooledJob = GetPooledJob();
@@ -254,12 +262,12 @@ public partial class JobScheduler : IDisposable
                 // we treat the first job as the master
                 if (i == 0)
                 {
-                    handle = pooledJob.Schedule(work, _dependencyCache, out ready, parallelWork, null, amount);
+                    handle = pooledJob.Schedule(work, _dependencyCache, out ready, parallelWork, null, amount, threads, i);
                 }
                 else
                 {
                     // other jobs use the master to store their stuff
-                    pooledJob.Schedule(work, _dependencyCache, out ready, parallelWork, handle, amount);
+                    pooledJob.Schedule(work, _dependencyCache, out ready, parallelWork, handle, amount, threads, i);
                 }
 
                 // if we're ready, we can go ahead and prep the job. If not, we leave that up to the dependencies.

@@ -13,6 +13,7 @@ public class ParallelForBenchmarkMatrix : ParallelForBenchmark
 
     public override int Size { get => _dim * _dim; }
     public override int Waves { get => 1; }
+    protected override int BatchSize { get => 64; }
 
     protected override void Init()
     {

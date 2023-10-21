@@ -22,12 +22,24 @@ public interface IJobParallelFor
     ///     </para>
     ///     <para>
     ///         This does not, however, ensure that <see cref="ThreadCount"/> threads will actually be used. If other threads are busy,
-    ///         the active threads might finish the whole thing before they can get a chance.
+    ///         the active threads might finish the whole thing before they can get a chance. Additionally, it is capped by
+    ///         <see cref="BatchSize"/>: if there are in total less than <see cref="ThreadCount"/> batches given the spawn amount, it
+    ///         only the needed threads will be spawned.
     ///     </para>
     /// </remarks>
     public int ThreadCount { get; }
 
-    // TODO: Once we do work stealing for parallel jobs, a batch size parameter should go here.
+    /// <summary>
+    ///     The amount of work to do in each thread.
+    /// </summary>
+    /// <remarks>
+    ///     Decreasing <see cref="BatchSize"/> will increase overhead, but if your work performed
+    ///     is significantly greater than the overhead, it might make sense to have a <see cref="BatchSize"/> of <c>1</c>. On the other hand,
+    ///     if the job runs little code per operation, it would make sense to have a <see cref="BatchSize"/> of <c>64</c>. Always profile
+    ///     your code to determine the correct batch size, and err on the side of higher batch size if no performance gain is observed from
+    ///     a smaller size.
+    /// </remarks>
+    public int BatchSize { get; }
 
     /// <summary>
     ///     Implement this method to define the execution behavior, just like a normal <see cref="IJob"/>.

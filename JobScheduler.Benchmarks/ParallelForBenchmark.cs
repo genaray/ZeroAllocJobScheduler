@@ -31,6 +31,11 @@ public abstract class ParallelForBenchmark
     public abstract int Waves { get; }
 
     /// <summary>
+    /// The batch size to use for the jobs.
+    /// </summary>
+    protected abstract int BatchSize { get; }
+
+    /// <summary>
     /// The work to run on each parallel iteration.
     /// </summary>
     protected abstract void Work(int index);
@@ -53,6 +58,8 @@ public abstract class ParallelForBenchmark
         {
             get => 0;
         }
+        public int BatchSize { get => _benchmark.BatchSize; }
+
         public BasicParallelJob(ParallelForBenchmark benchmark)
         {
             _benchmark = benchmark;
