@@ -71,6 +71,11 @@ public partial class JobScheduler : IDisposable
     private readonly bool _strictAllocationMode;
     private readonly int _maxConcurrentJobs;
 
+    /// <summary>
+    /// The actual number of threads this <see cref="JobScheduler"/> was spawned with.
+    /// </summary>
+    public int ThreadCount { get; }
+
     // temporary list for passing deps into JobPool
     private readonly List<JobHandle> _dependencyCache;
 
@@ -85,10 +90,10 @@ public partial class JobScheduler : IDisposable
     {
         MainThreadID = Thread.CurrentThread.ManagedThreadId;
 
-        var threads = settings.ThreadCount;
-        if (threads <= 0)
+        ThreadCount = settings.ThreadCount;
+        if (ThreadCount <= 0)
         {
-            threads = Environment.ProcessorCount;
+            ThreadCount = Environment.ProcessorCount;
         }
 
         _strictAllocationMode = settings.StrictAllocationMode;
@@ -129,16 +134,16 @@ public partial class JobScheduler : IDisposable
         for (var i = 0; i < settings.MaxExpectedConcurrentJobs; i++)
         {
             // this will automatically pool
-            new Job(settings.MaxExpectedConcurrentJobs - 1, this);
+            new Job(settings.MaxExpectedConcurrentJobs - 1, ThreadCount, this);
         }
 
-        InitAlgorithm(threads, _maxConcurrentJobs, CancellationTokenSource.Token);
+        InitAlgorithm(ThreadCount, _maxConcurrentJobs, CancellationTokenSource.Token);
 
         // we count us as a thread
-        _threadsAlive = threads;
+        _threadsAlive = ThreadCount;
 
         // spawn all the child threads
-        for (var i = 0; i < threads; i++)
+        for (var i = 0; i < ThreadCount; i++)
         {
             var c = i;
             var thread = new Thread(WorkerLoop)
@@ -172,16 +177,36 @@ public partial class JobScheduler : IDisposable
         get => Thread.CurrentThread.ManagedThreadId == MainThreadID;
     }
 
+    private Job GetPooledJob()
+    {
+        Job job;
+        // This will never fail due to concurrency issues because the main thread is the only ones allowed to dequeue
+        while (!_jobPool.TryDequeue(out job))
+        {
+            if (_strictAllocationMode)
+            {
+                throw new MaximumConcurrentJobCountExceededException();
+            }
+            // We are spontaneously allocating, so to save memory, don't use an initial size
+            // This will automatically pool!
+            new Job(0, ThreadCount, this);
+        }
+
+        return job;
+    }
+
     /// <summary>
     ///     Schedules a <see cref="IJob"/> and returns its <see cref="JobHandle"/>.
     /// </summary>
-    /// <param name="job">The <see cref="IJob"/>.</param>
+    /// <param name="work">The <see cref="IJob"/>.</param>
     /// <param name="dependency">The <see cref="JobHandle"/>-Dependency.</param>
     /// <param name="dependencies">A list of additional <see cref="JobHandle"/>-Dependencies.</param>
+    /// <param name="parallelWork">A parallel job, if we want to schedule one.</param>
+    /// <param name="amount">The amount of times to run the parallel job.</param>
     /// <returns>A <see cref="JobHandle"/>.</returns>
     /// <exception cref="InvalidOperationException">If called on a different thread than the <see cref="JobScheduler"/> was constructed on</exception>
     /// <exception cref="MaximumConcurrentJobCountExceededException">If the maximum amount of concurrent jobs is at maximum, and strict mode is enabled.</exception>
-    private JobHandle Schedule(IJob? job, JobHandle? dependency = null, JobHandle[]? dependencies = null)
+    private JobHandle Schedule(IJob? work, JobHandle? dependency = null, JobHandle[]? dependencies = null, IJobParallelFor? parallelWork = null, int amount = 0)
     {
         if (!IsMainThread)
         {
@@ -203,32 +228,62 @@ public partial class JobScheduler : IDisposable
             _dependencyCache.Add(dependency.Value);
         }
 
-        Job pooledJob;
-        // This will never fail due to concurrency issues because we're the only ones allowed to dequeue
-        while (!_jobPool.TryDequeue(out pooledJob))
+        JobHandle? handle = null;
+
+        // Schedule a regular job
+        if (parallelWork is null)
         {
-            if (_strictAllocationMode)
+            var pooledJob = GetPooledJob();
+            handle = pooledJob.Schedule(work, _dependencyCache, out var ready);
+
+            // if we're ready, we can go ahead and prep the job. If not, we leave that up to the dependencies.
+            if (ready)
             {
-                throw new MaximumConcurrentJobCountExceededException();
+                QueuedJobs.Add(pooledJob);
             }
-            // We are spontaneously allocating, so to save memory, don't use an initial size
-            // This will automatically pool!
-            new Job(0, this);
         }
-
-        var handle = pooledJob.Schedule(job, _dependencyCache, out var ready);
-
-        // if we're ready, we can go ahead and prep the job. If not, we leave that up to the dependencies.
-        if (ready)
+        // Schedule a parallel job
+        else
         {
-            QueuedJobs.Add(pooledJob);
+            if (parallelWork.BatchSize <= 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(parallelWork.BatchSize));
+            }
+
+            var threads = parallelWork.ThreadCount <= 0 ? ThreadCount : Math.Min(parallelWork.ThreadCount, ThreadCount);
+            var batches = (int)MathF.Ceiling(amount / (float)parallelWork.BatchSize);
+            threads = Math.Min(threads, batches);
+
+            for (var i = 0; i < threads; i++)
+            {
+                var pooledJob = GetPooledJob();
+
+                bool ready;
+                // we treat the first job as the master
+                if (i == 0)
+                {
+                    handle = pooledJob.Schedule(work, _dependencyCache, out ready, parallelWork, null, amount, threads, i);
+                }
+                else
+                {
+                    // other jobs use the master to store their stuff
+                    pooledJob.Schedule(work, _dependencyCache, out ready, parallelWork, handle, amount, threads, i);
+                }
+
+                // if we're ready, we can go ahead and prep the job. If not, we leave that up to the dependencies.
+                if (ready)
+                {
+                    QueuedJobs.Add(pooledJob);
+                }
+            }
         }
 
-        return handle;
+        Debug.Assert(handle is not null);
+        return handle.Value;
     }
 
     /// <summary>
-    /// Schedules a job. It is only queued up, and will only begin processing when the user calls <see cref="Flush()"/> or when any in-progress dependencies complete.
+    ///     Schedules an <see cref="IJob"/>. It is only queued up, and will only begin processing when the user calls <see cref="Flush()"/> or when any in-progress dependencies complete.
     /// </summary>
     /// <param name="job">The job to process</param>
     /// <param name="dependency">A job that must complete before this job can be run</param>
@@ -243,6 +298,35 @@ public partial class JobScheduler : IDisposable
         }
 
         return Schedule(job, dependency, null);
+    }
+
+    /// <summary>
+    ///     Schedules an <see cref="IJobParallelFor"/>. It is only queued up, and will only begin processing when the user calls
+    /// <see cref="Flush()"/> or when any in-progress dependencies complete.
+    /// </summary>
+    /// <remarks>
+    ///     Note that this will schedule as many jobs as specified in <see cref="IJobParallelFor"/> or the maximum thread count, whichever is less
+    ///     (or the maximum thread count if the threads provided are 0). See <see cref="IJobParallelFor"/> for details.
+    /// </remarks>
+    /// <param name="job"></param>
+    /// <param name="amount"></param>
+    /// <param name="dependency"></param>
+    /// <returns>The <see cref="JobHandle"/> of a job representing the full task.</returns>
+    /// <exception cref="InvalidOperationException">If called on a different thread than the <see cref="JobScheduler"/> was constructed on</exception>
+    /// <exception cref="MaximumConcurrentJobCountExceededException">If the maximum amount of concurrent jobs is at maximum, and strict mode is enabled.</exception>
+    public JobHandle Schedule(IJobParallelFor job, int amount, JobHandle? dependency = null)
+    {
+        if (amount <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(amount));
+        }
+
+        if (dependency is not null)
+        {
+            CheckForSchedulerEquality(dependency.Value);
+        }
+
+        return Schedule(null, dependency, null, job, amount);
     }
 
     /// <summary>
