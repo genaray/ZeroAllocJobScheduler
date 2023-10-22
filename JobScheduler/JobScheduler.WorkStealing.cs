@@ -98,11 +98,11 @@ public partial class JobScheduler
             Deque = new(maxJobs);
         }
         public int Id { get; }
-        public JobMeta? Cache { get; set; } = null;
-        public WorkStealingDeque<JobMeta> Deque { get; }
+        public Job? Cache { get; set; } = null;
+        public WorkStealingDeque<Job> Deque { get; }
 
         // store this to cache the output from JobPool per thread
-        public List<(JobId, IJob?)> ReadyDependencyCache { get; }
+        public List<Job> ReadyDependencyCache { get; }
     }
 
     private int _stealBound = 0;
@@ -120,7 +120,7 @@ public partial class JobScheduler
     /// <summary>
     /// Jobs flushed and waiting to be picked up by worker threads
     /// </summary>
-    private ConcurrentQueue<JobMeta> MasterQueue { get; }
+    private ConcurrentQueue<Job> MasterQueue { get; }
 
     // sets up all the various properties; called by the constructor of JobScheduler
     private void InitAlgorithm(int threadCount, int maxJobs, CancellationToken token)
@@ -140,7 +140,7 @@ public partial class JobScheduler
     private void WorkerLoop(object data)
     {
         var worker = (int)data;
-        JobMeta? task = null;
+        Job? task = null;
         var workerData = _workers[worker];
         while (true)
         {
@@ -166,31 +166,22 @@ public partial class JobScheduler
     // In Lin et al. the functionality of this method is merely implied.
     // The idea is that a task will execute, and then push any newly resolved dependencies to its cache and queue.
     // So this is the least clearly-indicated method from Lin, and has the most pollution from our own job-tracking API. (JobInfoPool etc).
-    private void Execute(in JobMeta task, WorkerData workerData)
+    private void Execute(in Job task, WorkerData workerData)
     {
         // it might be null if this is a job generated with CombineDependencies
-        task.Job?.Execute();
-
-        // the purpose of this lock is to ensure that the Complete method always subscribes and listens to an existant signal.
-        ManualResetEvent? handle;
         var readyDependencies = workerData.ReadyDependencyCache;
         readyDependencies.Clear();
-        lock (JobPool)
-        {
-            // remove the job from circulation
-            handle = JobPool.MarkComplete(task.JobID, readyDependencies);
-        }
+        task.Execute(readyDependencies);
 
         if (readyDependencies.Count > 0)
         {
             // Cache the first unlocked dependency for quick access
-            workerData.Cache = new(readyDependencies[0].Item1, readyDependencies[0].Item2);
+            workerData.Cache = readyDependencies[0];
 
             // Queue up any others
             for (int i = 1; i < readyDependencies.Count; i++)
             {
-                var tup = readyDependencies[i];
-                Push(new JobMeta(tup.Item1, tup.Item2), workerData);
+                Push(readyDependencies[i], workerData);
             }
         }
         else
@@ -198,14 +189,10 @@ public partial class JobScheduler
             // If we didn't find anything, we clear the cache
             workerData.Cache = null;
         }
-
-        // If JobScheduler.Complete was called on this job by a different thread, it told the job pool with Subscribe that we should ping,
-        // and that Complete would handle recycling. We notify the event here.
-        handle?.Set();
     }
 
     // Pops from our own deque
-    private void Pop(out JobMeta? task, WorkerData workerData)
+    private void Pop(out Job? task, WorkerData workerData)
     {
         if (workerData.Deque.TryPopBottom(out var popped))
         {
@@ -218,13 +205,13 @@ public partial class JobScheduler
     }
 
     // Pushes to our own deque
-    private void Push(in JobMeta task, WorkerData workerData)
+    private void Push(in Job task, WorkerData workerData)
     {
         workerData.Deque.PushBottom(task);
     }
 
     // Steals from a victim's deque
-    private void StealFrom(out JobMeta? task, WorkerData workerData)
+    private void StealFrom(out Job? task, WorkerData workerData)
     {
         if (workerData.Deque.TrySteal(out var stolen))
         {
@@ -244,7 +231,7 @@ public partial class JobScheduler
     /// </remarks>
     /// <param name="task"></param>
     /// <param name="workerData"></param>
-    private void ExploitTask(ref JobMeta? task, WorkerData workerData)
+    private void ExploitTask(ref Job? task, WorkerData workerData)
     {
         // if we incremented _numActives from 0 to 1, and there aren't any thieves currently active.
         // it means we need to notify additional threads to pick up more work, because they aren't pulling their weight.
@@ -257,7 +244,7 @@ public partial class JobScheduler
         {
             if (task is not null)
             {
-                Execute(task.Value, workerData);
+                Execute(task, workerData);
             }
             if (workerData.Cache is not null)
             {
@@ -284,7 +271,7 @@ public partial class JobScheduler
     /// <param name="task"></param>
     /// <param name="workerData"></param>
     /// <returns></returns>
-    private bool WaitForTask(ref JobMeta? task, WorkerData workerData)
+    private bool WaitForTask(ref Job? task, WorkerData workerData)
     {
     WaitForTask:
         // It's stealing time!
@@ -358,7 +345,7 @@ public partial class JobScheduler
     /// </remarks>
     /// <param name="task"></param>
     /// <param name="workerData"></param>
-    private void ExploreTask(ref JobMeta? task, WorkerData workerData)
+    private void ExploreTask(ref Job? task, WorkerData workerData)
     {
         int numFailedSteals = 0;
         int numYields = 0;

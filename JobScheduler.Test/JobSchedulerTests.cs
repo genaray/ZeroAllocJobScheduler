@@ -43,17 +43,6 @@ internal class JobSchedulerTests : SchedulerTestFixture
         }
     }
 
-#if DEBUG
-    [Test]
-    public void CannotAwaitUnflushedHandle()
-    {
-        var job = new SleepJob(0);
-        var handle = Scheduler.Schedule(job);
-        Assert.That(handle.Complete, Throws.InvalidOperationException);
-    }
-#endif
-
-
     [Test]
     public void CannotFlushOnOtherThread()
     {
