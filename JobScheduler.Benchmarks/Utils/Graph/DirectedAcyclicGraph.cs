@@ -13,7 +13,11 @@ public class DirectedAcyclicGraph
         public int ID { get; }
         public List<Node> Children { get; } = new();
         public List<Node> Parents { get; } = new();
-        public int Degree => Children.Count + Parents.Count;
+        public int Degree
+        {
+            get => Children.Count + Parents.Count;
+        }
+
         public object? Data { get; set; } = null;
     }
 
@@ -30,27 +34,29 @@ public class DirectedAcyclicGraph
     /// <returns></returns>
     public override string ToString()
     {
-        static void AddNode(Node node, HashSet<Node> nodes)
+        static void addNode(Node node, HashSet<Node> nodes)
         {
             nodes.Add(node);
             foreach (var child in node.Children)
             {
-                AddNode(child, nodes);
+                addNode(child, nodes);
             }
         }
 
         // ensure we don't track duplicate nodes
         HashSet<Node> nodes = new();
-        AddNode(RootNode, nodes);
+        addNode(RootNode, nodes);
 
         StringBuilder sb = new();
         sb.AppendLine($"digraph {nameof(DirectedAcyclicGraph)} {{");
         foreach (var node in nodes)
         {
-            foreach (var child in node.Children) {
+            foreach (var child in node.Children)
+            {
                 sb.AppendLine($"{node.ID} -> {child.ID};");
             }
         }
+
         sb.AppendLine("}");
         return sb.ToString();
     }

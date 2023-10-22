@@ -29,7 +29,10 @@ internal class CircularArray<T>
     /// Returns the current capacity of the array.
     /// </summary>
     // equivalent to size() in Chase and Lev
-    public long Capacity => 1 << _logSize;
+    public long Capacity
+    {
+        get => 1 << _logSize;
+    }
 
     /// <summary>
     /// Get or set at an index of the array. If the index is greater than the array length, wraps around the array.
@@ -58,10 +61,11 @@ internal class CircularArray<T>
     public CircularArray<T> EnsureCapacity(long b, long t)
     {
         CircularArray<T> newArray = new(_logSize + 1);
-        for (long i = t; i < b; i++)
+        for (var i = t; i < b; i++)
         {
             newArray[i] = this[i];
         }
+
         return newArray;
     }
 }

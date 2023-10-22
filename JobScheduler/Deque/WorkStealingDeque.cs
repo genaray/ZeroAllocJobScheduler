@@ -123,7 +123,7 @@ internal class WorkStealingDeque<T>
     public void PushBottom(T item)
     {
         var b = Volatile.Read(ref _bottom);
-        CircularArray<T> a = _activeArray;
+        var a = _activeArray;
 
         // we use the cached value per section 2.3, to avoid a blocking top read
         var sizeUpperBound = b - _lastTopValue;
@@ -139,13 +139,13 @@ internal class WorkStealingDeque<T>
                 _activeArray = a;
             }
         }
+
         a[b] = item;
 
         // Incrementing the bottom is always safe, because Steal never changes bottom.
         // Steal can only ever change top.
         Volatile.Write(ref _bottom, b + 1);
     }
-
 
     /// <summary>
     ///     Attempt to pop an item from the bottom of the <see cref="WorkStealingDeque{T}"/>.
@@ -162,7 +162,7 @@ internal class WorkStealingDeque<T>
         item = default!;
 
         var b = Volatile.Read(ref _bottom);
-        CircularArray<T> a = _activeArray;
+        var a = _activeArray;
 
         // we're popping, so decrement the bottom in advance.
         // Doing this in advance ensures that we "reserve space" in the size, so that even if someone steals,
@@ -185,7 +185,7 @@ internal class WorkStealingDeque<T>
 
         // if we're not empty even after the pop, we're good to go.
         // This means we can pop even without the expensive CAS!
-        T popped = a[b];
+        var popped = a[b];
         if (size > 0)
         {
             item = popped;
@@ -228,7 +228,7 @@ internal class WorkStealingDeque<T>
         // That will protect it from the GC while we do this method.
         // Since the array (in this implementation) only gets resized on push, the top index must be where we expect.
         // Unless the top index changes: in which case we got out-raced and we'll exit later.
-        CircularArray<T> a = _activeArray;
+        var a = _activeArray;
         var size = b - t;
 
         // If we're empty, don't even try.
@@ -237,7 +237,7 @@ internal class WorkStealingDeque<T>
             return false;
         }
         // We know we're not empty, so give it a shot:
-        T stolen = a[t];
+        var stolen = a[t];
 
         // Check for a race between TryPopBottom, other stealers, and us.
         // If we successfully increment the top (decreasing the size of the deque), we win.

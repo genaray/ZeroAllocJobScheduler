@@ -6,7 +6,7 @@
 [MemoryDiagnoser]
 public class ManyJobsBenchmark
 {
-    private JobScheduler Scheduler = null!;
+    private JobScheduler _scheduler = null!;
 
     /// <summary>
     /// The thread count tested
@@ -29,13 +29,14 @@ public class ManyJobsBenchmark
     /// </summary>
     [Params(1024)] public int Waves;
 
-    JobHandle[] Handles = null!;
+    private JobHandle[] _handles = null!;
+
     private class EmptyJob : IJob
     {
         public void Execute() { }
     }
 
-    private readonly static EmptyJob Empty = new();
+    private readonly static EmptyJob _empty = new();
 
     [IterationSetup]
     public void Setup()
@@ -47,26 +48,26 @@ public class ManyJobsBenchmark
             ThreadPrefixName = nameof(ManyJobsBenchmark),
             ThreadCount = Threads
         };
-        Scheduler = new(config);
-        Handles = new JobHandle[ConcurrentJobs];
+        _scheduler = new(config);
+        _handles = new JobHandle[ConcurrentJobs];
     }
 
     [IterationCleanup]
     public void Cleanup()
     {
-        Scheduler.Dispose();
+        _scheduler.Dispose();
     }
 
     [Benchmark]
     public void BenchmarkSequential()
     {
-        for (int w = 0; w < Waves; w++)
+        for (var w = 0; w < Waves; w++)
         {
-            for (int i = 0; i < ConcurrentJobs; i++)
+            for (var i = 0; i < ConcurrentJobs; i++)
             {
-                Handles[i] = Scheduler.Schedule(Empty);
-                Scheduler.Flush();
-                Handles[i].Complete();
+                _handles[i] = _scheduler.Schedule(_empty);
+                _scheduler.Flush();
+                _handles[i].Complete();
             }
         }
     }
@@ -74,17 +75,18 @@ public class ManyJobsBenchmark
     [Benchmark]
     public void BenchmarkDependancies()
     {
-        for (int w = 0; w < Waves; w++)
+        for (var w = 0; w < Waves; w++)
         {
-            for (int i = 0; i < ConcurrentJobs; i++)
+            for (var i = 0; i < ConcurrentJobs; i++)
             {
-                if (i == 0) Handles[i] = Scheduler.Schedule(Empty);
-                else Handles[i] = Scheduler.Schedule(Empty, Handles[i - 1]);
+                _handles[i] = i == 0 ? _scheduler.Schedule(_empty)
+                    : _scheduler.Schedule(_empty, _handles[i - 1]);
             }
-            Scheduler.Flush();
-            for (int i = 0; i < ConcurrentJobs; i++)
+
+            _scheduler.Flush();
+            for (var i = 0; i < ConcurrentJobs; i++)
             {
-                Handles[i].Complete();
+                _handles[i].Complete();
             }
         }
     }

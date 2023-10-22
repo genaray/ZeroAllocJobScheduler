@@ -1,5 +1,5 @@
-﻿using JobScheduler.Deque;
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
+using JobScheduler.Deque;
 
 namespace JobScheduler;
 
@@ -23,12 +23,12 @@ public partial class JobScheduler
     private class Notifier
     {
         // lets 1 thread through when Set(), then immediately resets
-        readonly AutoResetEvent _singleNotifier = new(false);
+        private readonly AutoResetEvent _singleNotifier = new(false);
 
         // lets all threads through when Set() until manually reset
         // we only use this to notify all for an exit condition
-        readonly ManualResetEvent _multipleNotifier = new(false);
-        readonly WaitHandle[] _both;
+        private readonly ManualResetEvent _multipleNotifier = new(false);
+        private readonly WaitHandle[] _both;
 
         public bool IsDisposed { get; private set; } = false;
 
@@ -128,13 +128,13 @@ public partial class JobScheduler
         _stealBound = 2 * (threadCount - 1);
         _workers = new WorkerData[threadCount];
 
-        for (int i = 0; i < _workers.Length; i++)
+        for (var i = 0; i < _workers.Length; i++)
         {
             _workers[i] = new WorkerData(i, maxJobs);
         }
+
         _token = token;
     }
-
 
     // Algorithm 2 [1]
     private void WorkerLoop(object data)
@@ -179,7 +179,7 @@ public partial class JobScheduler
             workerData.Cache = readyDependencies[0];
 
             // Queue up any others
-            for (int i = 1; i < readyDependencies.Count; i++)
+            for (var i = 1; i < readyDependencies.Count; i++)
             {
                 Push(readyDependencies[i], workerData);
             }
@@ -194,14 +194,7 @@ public partial class JobScheduler
     // Pops from our own deque
     private void Pop(out Job? task, WorkerData workerData)
     {
-        if (workerData.Deque.TryPopBottom(out var popped))
-        {
-            task = popped;
-        }
-        else
-        {
-            task = null;
-        }
+        task = workerData.Deque.TryPopBottom(out var popped) ? popped : null;
     }
 
     // Pushes to our own deque
@@ -213,14 +206,7 @@ public partial class JobScheduler
     // Steals from a victim's deque
     private void StealFrom(out Job? task, WorkerData workerData)
     {
-        if (workerData.Deque.TrySteal(out var stolen))
-        {
-            task = stolen;
-        }
-        else
-        {
-            task = null;
-        }
+        task = workerData.Deque.TrySteal(out var stolen) ? stolen : null;
     }
 
     /// <summary>
@@ -246,6 +232,7 @@ public partial class JobScheduler
             {
                 Execute(task, workerData);
             }
+
             if (workerData.Cache is not null)
             {
                 // We use a cached task before our deque, if available, for quick access
@@ -287,6 +274,7 @@ public partial class JobScheduler
             {
                 _notifier.NotifyOne();
             }
+
             return true;
         }
 
@@ -305,6 +293,7 @@ public partial class JobScheduler
             {
                 _notifier.NotifyOne();
             }
+
             return true;
         }
 
@@ -347,8 +336,8 @@ public partial class JobScheduler
     /// <param name="workerData"></param>
     private void ExploreTask(ref Job? task, WorkerData workerData)
     {
-        int numFailedSteals = 0;
-        int numYields = 0;
+        var numFailedSteals = 0;
+        var numYields = 0;
 
         while (!_token.IsCancellationRequested)
         {

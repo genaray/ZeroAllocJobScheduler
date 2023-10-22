@@ -6,7 +6,7 @@
 [MemoryDiagnoser]
 public class MaxConcurrentJobsBenchmark
 {
-    private JobScheduler Scheduler = null!;
+    private JobScheduler _scheduler = null!;
 
     /// <summary>
     /// The thread count tested
@@ -24,13 +24,14 @@ public class MaxConcurrentJobsBenchmark
     /// </summary>
     [Params(32, 4096)] public int MaxConcurrentJobs;
 
-    Queue<JobHandle> Handles = null!;
+    private Queue<JobHandle> _handles = null!;
+
     private class EmptyJob : IJob
     {
         public void Execute() { }
     }
 
-    private readonly static EmptyJob Empty = new();
+    private readonly static EmptyJob _empty = new();
 
     [IterationSetup]
     public void Setup()
@@ -42,37 +43,38 @@ public class MaxConcurrentJobsBenchmark
             ThreadPrefixName = nameof(MaxConcurrentJobsBenchmark),
             ThreadCount = Threads
         };
-        Scheduler = new(config);
-        Handles = new Queue<JobHandle>(MaxConcurrentJobs);
+        _scheduler = new(config);
+        _handles = new Queue<JobHandle>(MaxConcurrentJobs);
     }
 
     [IterationCleanup]
     public void Cleanup()
     {
-        Scheduler.Dispose();
+        _scheduler.Dispose();
     }
 
     [Benchmark]
     public void BenchmarkDependancies()
     {
-        int jobsSoFar = 0;
+        var jobsSoFar = 0;
 
         // schedule some starter jobs; should have negligible impact on total performance even with varying MaxConcurrentJobs as long as TotalJobs >>> MaxConcurrentJobs
-        for (int i = 0; i < MaxConcurrentJobs; i++)
+        for (var i = 0; i < MaxConcurrentJobs; i++)
         {
-            Handles.Enqueue(Scheduler.Schedule(Empty));
+            _handles.Enqueue(_scheduler.Schedule(_empty));
             jobsSoFar++;
         }
-        Scheduler.Flush();
+
+        _scheduler.Flush();
 
         // keep going up until the total job limit of jobs processed
         while (jobsSoFar <= TotalJobs)
         {
             // complete the last-entered job; probably complete by now
-            Handles.Dequeue().Complete();
+            _handles.Dequeue().Complete();
             // schedule a new one to fill the gap
-            Handles.Enqueue(Scheduler.Schedule(Empty));
-            Scheduler.Flush();
+            _handles.Enqueue(_scheduler.Schedule(_empty));
+            _scheduler.Flush();
             jobsSoFar++;
         }
     }

@@ -76,8 +76,14 @@ internal partial class SingleDependencyTests : SchedulerTestFixture
         var handle1 = Scheduler.Schedule(job1);
         Scheduler.Flush();
 
-        if (manuallyComplete) handle1.Complete();
-        else Thread.Sleep(10);
+        if (manuallyComplete)
+        {
+            handle1.Complete();
+        }
+        else
+        {
+            Thread.Sleep(10);
+        }
 
         Assert.Multiple(() =>
         {
@@ -87,8 +93,14 @@ internal partial class SingleDependencyTests : SchedulerTestFixture
 
         var handle2 = Scheduler.Schedule(job2, handle1);
         Scheduler.Flush();
-        if (manuallyComplete) handle2.Complete();
-        else Thread.Sleep(10);
+        if (manuallyComplete)
+        {
+            handle2.Complete();
+        }
+        else
+        {
+            Thread.Sleep(10);
+        }
 
         Assert.Multiple(() =>
         {

@@ -1,6 +1,5 @@
 ﻿namespace JobScheduler.Test.Utils;
 
-
 // run the fixture with multiple thread configurations
 [TestFixture(0)]
 [TestFixture(1)]
@@ -40,7 +39,10 @@ internal class SchedulerTestFixture
     public void Clean()
     {
         if (!SuppressDispose)
+        {
             Scheduler.Dispose();
+        }
+
         Scheduler = null!;
     }
 }

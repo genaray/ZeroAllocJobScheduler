@@ -21,7 +21,10 @@ internal class StressTests : SchedulerTestFixture
         MaxExpectedConcurrentJobs = maxJobs;
     }
 
-    protected override bool StrictAllocationMode => false;
+    protected override bool StrictAllocationMode
+    {
+        get => false;
+    }
 
     protected override int MaxExpectedConcurrentJobs { get; }
 
@@ -33,11 +36,12 @@ internal class StressTests : SchedulerTestFixture
     public void StressTestJobs(int jobCount, int waveCount, bool useDependenciesOnWaves, bool useDependenciesOnJobs)
     {
         List<TestJob> jobs = new();
-        for (int j = 0; j < jobCount; j++)
+        for (var j = 0; j < jobCount; j++)
         {
             jobs.Add(new TestJob());
         }
-        for (int w = 0; w < waveCount; w++)
+
+        for (var w = 0; w < waveCount; w++)
         {
             List<JobHandle> handles = new();
             JobHandle? lastWaveHandle = null;
@@ -47,16 +51,26 @@ internal class StressTests : SchedulerTestFixture
                 {
                     // setup the first one to use the last wave, if necessary
                     if (useDependenciesOnWaves && lastWaveHandle is not null)
+                    {
                         handles.Add(Scheduler.Schedule(job, lastWaveHandle));
-                    else handles.Add(Scheduler.Schedule(job));
+                    }
+                    else
+                    {
+                        handles.Add(Scheduler.Schedule(job));
+                    }
                 }
 
                 // depend on the previous job
                 else if (useDependenciesOnJobs)
+                {
                     handles.Add(Scheduler.Schedule(job, handles.Last()));
+                }
 
                 // just do a normal schedule if none of those
-                else handles.Add(Scheduler.Schedule(job));
+                else
+                {
+                    handles.Add(Scheduler.Schedule(job));
+                }
             }
 
             if (useDependenciesOnWaves)
@@ -70,6 +84,7 @@ internal class StressTests : SchedulerTestFixture
                 Scheduler.Flush();
                 JobHandle.CompleteAll(handles);
             }
+
             foreach (var job in jobs)
             {
                 Assert.That(job.Result, Is.EqualTo(w + 1));
@@ -77,7 +92,7 @@ internal class StressTests : SchedulerTestFixture
         }
     }
 
-    class EmptyJob : IJob
+    private class EmptyJob : IJob
     {
         public void Execute() { }
     }
@@ -89,13 +104,12 @@ internal class StressTests : SchedulerTestFixture
         var handles = new JobHandle[nodesPerGraph];
         var orderedNodes = new List<DirectedAcyclicGraph.Node>(nodesPerGraph);
         var emptyJob = new EmptyJob();
-        for (int g = 0; g < graphCount; g++)
+        for (var g = 0; g < graphCount; g++)
         {
             orderedNodes.Clear();
 
             var minJobsPerRank = Math.Sqrt(nodesPerGraph);
             var maxJobsPerRank = Math.Sqrt(nodesPerGraph) + 5;
-
 
             var graph = GraphGenerator.GenerateRandomGraph(new()
             {
@@ -107,16 +121,20 @@ internal class StressTests : SchedulerTestFixture
             });
 
             // add all the cached arrays for use in CombinedDependencies
-            void CollectNodes(DirectedAcyclicGraph.Node node)
+            void collectNodes(DirectedAcyclicGraph.Node node)
             {
-                if (!orderedNodes.Contains(node)) orderedNodes.Add(node);
+                if (!orderedNodes.Contains(node))
+                {
+                    orderedNodes.Add(node);
+                }
+
                 foreach (var child in node.Children)
                 {
-                    CollectNodes(child);
+                    collectNodes(child);
                 }
             }
 
-            CollectNodes(graph.RootNode);
+            collectNodes(graph.RootNode);
             // we process the nodes in increasing numerical order always
             // that way we ensure we schedule parents before children
             orderedNodes = orderedNodes.OrderBy(node => node.ID).ToList();
@@ -126,14 +144,13 @@ internal class StressTests : SchedulerTestFixture
                 node.Data ??= new JobHandle[node.Parents.Count];
             }
 
-
             // actually execute
-            for (int w = 0; w < waves; w++)
+            for (var w = 0; w < waves; w++)
             {
                 foreach (var node in orderedNodes)
                 {
                     var array = (JobHandle[])node.Data!;
-                    for (int i = 0; i < array.Length; i++)
+                    for (var i = 0; i < array.Length; i++)
                     {
                         array[i] = handles[node.Parents[i].ID];
                     }
@@ -141,6 +158,7 @@ internal class StressTests : SchedulerTestFixture
                     // here's where the duplication occurs; two schedules!
                     handles[node.ID] = Scheduler.Schedule(emptyJob, Scheduler.CombineDependencies(array));
                 }
+
                 Scheduler.Flush();
                 foreach (var handle in handles)
                 {
