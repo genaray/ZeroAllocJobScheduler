@@ -295,6 +295,12 @@ internal class Job
                     spin.SpinOnce();
                 }
             }
+
+            if (_masterJob.Value.Job == this)
+            {
+                // We're now sure everyone's completed.
+                _parallelWork.Finish();
+            }
         }
 
         // You may think that we have to manage parallel dependencies here, but actually we don't!

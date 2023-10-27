@@ -48,4 +48,9 @@ public interface IJobParallelFor
     /// </summary>
     /// <param name="index"></param>
     public void Execute(int index);
+
+    /// <summary>
+    ///     Implement this method to provide custom code that executes once all parallel indices have been resolved.
+    /// </summary>
+    public void Finish();
 }

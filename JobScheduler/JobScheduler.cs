@@ -170,9 +170,9 @@ public partial class JobScheduler : IDisposable
     private List<Job> QueuedJobs { get; }
 
     /// <summary>
-    /// Returns whether this is the main thread the scheduler was created on
+    /// Returns true if this is the main thread the scheduler was created on; false otherwise
     /// </summary>
-    private bool IsMainThread
+    public bool IsMainThread
     {
         get => Thread.CurrentThread.ManagedThreadId == MainThreadID;
     }
