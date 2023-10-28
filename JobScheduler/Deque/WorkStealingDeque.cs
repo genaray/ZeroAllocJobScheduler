@@ -1,4 +1,4 @@
-﻿namespace JobScheduler.Deque;
+﻿namespace Schedulers.Deque;
 
 /// <summary>
 ///     A <see cref="WorkStealingDeque{T}"/> is an implementation of the Chase &amp; Lev Dynamic Circular Work-Stealing Deque [1]

@@ -1,4 +1,4 @@
-﻿namespace JobScheduler;
+﻿namespace Schedulers;
 
 /// <summary>
 ///     Represents a special job that, when scheduled, calls <see cref="Execute(int)"/> with every value of <c>index</c>.

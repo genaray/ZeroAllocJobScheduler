@@ -1,7 +1,7 @@
 ﻿using System.Collections.Concurrent;
-using JobScheduler.Deque;
+using Schedulers.Deque;
 
-namespace JobScheduler;
+namespace Schedulers;
 
 // This section of JobScheduler deals with the implementation of the Lin et al. algorithm [1]. 
 // It is compartmentalized into a separate partial, so that it can express the paper's algorithm as clearly and readably as possible,

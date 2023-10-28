@@ -1,8 +1,7 @@
-﻿using System;
-using System.Diagnostics;
-using JobScheduler.Deque;
+﻿using System.Diagnostics;
+using Schedulers.Deque;
 
-namespace JobScheduler;
+namespace Schedulers;
 
 /// <summary>
 ///     The <see cref="Job"/> struct
@@ -77,7 +76,7 @@ internal class Job
         _scheduler = scheduler;
         _dependents = new(dependentCapacity);
         _workerDeques = new RangeWorkStealingDeque[threadCapacity];
-        for (int i = 0; i < threadCapacity; i++)
+        for (var i = 0; i < threadCapacity; i++)
         {
             _workerDeques[i] = new();
         }

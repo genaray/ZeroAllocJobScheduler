@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-
-namespace JobScheduler;
+﻿namespace Schedulers;
 
 /// <summary>
 /// A super-fast pseudo-random number generator.

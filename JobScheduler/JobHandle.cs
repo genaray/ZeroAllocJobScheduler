@@ -1,6 +1,6 @@
 using System.Runtime.CompilerServices;
 
-namespace JobScheduler;
+namespace Schedulers;
 
 /// <summary>
 ///     The <see cref="JobHandle"/> struct

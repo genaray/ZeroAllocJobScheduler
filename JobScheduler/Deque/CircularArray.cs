@@ -1,4 +1,4 @@
-﻿namespace JobScheduler.Deque;
+﻿namespace Schedulers.Deque;
 
 /// <summary>
 /// A <see cref="CircularArray{T}"/> as found in Chase and Lev pg. 3 [1]
