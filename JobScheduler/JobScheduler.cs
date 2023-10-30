@@ -4,7 +4,7 @@ using System.Runtime.CompilerServices;
 
 [assembly: CLSCompliant(true)]
 
-namespace JobScheduler;
+namespace Schedulers;
 
 /// <summary>
 ///     A <see cref="JobScheduler"/> schedules and processes <see cref="IJob"/>s asynchronously. Better-suited for larger jobs due to its underlying events. 
@@ -170,9 +170,9 @@ public partial class JobScheduler : IDisposable
     private List<Job> QueuedJobs { get; }
 
     /// <summary>
-    /// Returns whether this is the main thread the scheduler was created on
+    /// Returns true if this is the main thread the scheduler was created on; false otherwise
     /// </summary>
-    private bool IsMainThread
+    public bool IsMainThread
     {
         get => Thread.CurrentThread.ManagedThreadId == MainThreadID;
     }

@@ -69,6 +69,8 @@ public abstract class ParallelForBenchmark
         {
             _benchmark.Work(i);
         }
+
+        public void Finish() { }
     }
 
     private BasicParallelJob _basicParallel = null!;

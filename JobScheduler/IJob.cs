@@ -1,4 +1,4 @@
-﻿namespace JobScheduler;
+﻿namespace Schedulers;
 
 /// <summary>
 ///     The <see cref="IJob"/> interface.

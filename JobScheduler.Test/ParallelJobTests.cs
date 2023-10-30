@@ -260,6 +260,11 @@ internal class ParallelJobTests : SchedulerTestFixture
                 Thread.Sleep(_sleep);
             }
         }
+
+        public void Finish()
+        {
+            Assert.That(ThreadIDs, Does.Not.Contain(0));
+        }
     }
 
     [TestCase(1024 * 1024, 0)]

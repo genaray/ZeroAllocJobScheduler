@@ -10,6 +10,8 @@ public class ParallelTestJob : IJobParallelFor
     public int ThreadCount { get; }
     public int BatchSize { get; }
 
+    public bool FinalizerRun { get; private set; } = false;
+
     private readonly int[] _array;
 
     public ParallelTestJob(int batchSize, int threadCount, int expectedSize)
@@ -24,6 +26,13 @@ public class ParallelTestJob : IJobParallelFor
         _array[index]++;
     }
 
+    public void Finish()
+    {
+        FinalizerRun = true;
+        AssertIsTotallyComplete();
+    }
+
+    [SuppressMessage("Assertion", "NUnit2045:Use Assert.Multiple", Justification = "<Pending>")]
     public void AssertIsTotallyIncomplete()
     {
         SearchArray(out var foundZeroValue, out var foundOneValue, out var foundOtherValue);
@@ -39,6 +48,7 @@ public class ParallelTestJob : IJobParallelFor
         Assert.That(foundZeroValue, Is.EqualTo(0));
         Assert.That(foundOneValue, Is.EqualTo(_array.Length));
         Assert.That(foundOtherValue, Is.EqualTo(0));
+        Assert.That(FinalizerRun, Is.True);
     }
 
     private void SearchArray(out int foundZeroValue, out int foundOneValue, out int foundOtherValue)
@@ -69,5 +79,7 @@ public class ParallelTestJob : IJobParallelFor
         {
             _array[i] = 0;
         }
+
+        FinalizerRun = false;
     }
 }
