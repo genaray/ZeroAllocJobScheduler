@@ -6,7 +6,7 @@ namespace JobScheduler;
 ///     The <see cref="JobHandle"/> struct
 ///     is used to control and await a scheduled <see cref="IJob"/>.
 /// </summary>
-public readonly struct JobHandle
+public readonly struct JobHandle : IEquatable<JobHandle>
 {
     /// <summary>
     ///     Creates a new <see cref="JobHandle"/> instance.
@@ -55,7 +55,7 @@ public readonly struct JobHandle
     /// </remarks>
     /// <param name="handles">The handles to complete.</param>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static void CompleteAll(JobHandle[] handles)
+    public static void CompleteAll(ReadOnlySpan<JobHandle> handles)
     {
         foreach (var handle in handles)
         {
@@ -63,19 +63,45 @@ public readonly struct JobHandle
         }
     }
 
-    /// <summary>
-    ///     Waits and blocks the calling thread until all <see cref="JobHandle"/>s are completed.
-    /// </summary>
-    /// <remarks>
-    ///     This is equivalent to calling <see cref="Complete()"/> on each <see cref="JobHandle"/> individually.
-    /// </remarks>
-    /// <param name="handles">The handles to complete.</param>
+    /// <inheritdoc cref="CompleteAll(ReadOnlySpan{JobHandle})"/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static void CompleteAll(List<JobHandle> handles)
+    public static void CompleteAll(IReadOnlyList<JobHandle> handles)
     {
-        foreach (var handle in handles)
+        for (var i = 0; i < handles.Count; i++)
         {
-            handle.Complete();
+            handles[i].Complete();
         }
+    }
+
+    /// <inheritdoc/>
+    public override bool Equals(object? obj)
+    {
+        return obj is JobHandle handle && Equals(handle);
+    }
+
+    /// <inheritdoc/>
+    public bool Equals(JobHandle other)
+    {
+        return EqualityComparer<JobScheduler>.Default.Equals(Scheduler, other.Scheduler) &&
+               EqualityComparer<Job>.Default.Equals(Job, other.Job) &&
+               Version == other.Version;
+    }
+
+    /// <inheritdoc/>
+    public override int GetHashCode()
+    {
+        return HashCode.Combine(Scheduler, Job, Version);
+    }
+
+    /// <inheritdoc/>
+    public static bool operator ==(JobHandle left, JobHandle right)
+    {
+        return left.Equals(right);
+    }
+
+    /// <inheritdoc/>
+    public static bool operator !=(JobHandle left, JobHandle right)
+    {
+        return !(left == right);
     }
 }

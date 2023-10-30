@@ -206,7 +206,7 @@ public partial class JobScheduler : IDisposable
     /// <returns>A <see cref="JobHandle"/>.</returns>
     /// <exception cref="InvalidOperationException">If called on a different thread than the <see cref="JobScheduler"/> was constructed on</exception>
     /// <exception cref="MaximumConcurrentJobCountExceededException">If the maximum amount of concurrent jobs is at maximum, and strict mode is enabled.</exception>
-    private JobHandle Schedule(IJob? work, JobHandle? dependency = null, JobHandle[]? dependencies = null, IJobParallelFor? parallelWork = null, int amount = 0)
+    private JobHandle Schedule(IJob? work, JobHandle? dependency = null, ReadOnlySpan<JobHandle> dependencies = new(), IJobParallelFor? parallelWork = null, int amount = 0)
     {
         if (!IsMainThread)
         {
@@ -215,12 +215,9 @@ public partial class JobScheduler : IDisposable
 
         _dependencyCache.Clear();
 
-        if (dependencies is not null)
+        foreach (var d in dependencies)
         {
-            foreach (var d in dependencies)
-            {
-                _dependencyCache.Add(d);
-            }
+            _dependencyCache.Add(d);
         }
 
         if (dependency is not null)
@@ -336,7 +333,7 @@ public partial class JobScheduler : IDisposable
     /// <returns>The combined <see cref="JobHandle"/></returns>
     /// <exception cref="InvalidOperationException">If called on a different thread than the <see cref="JobScheduler"/> was constructed on</exception>
     /// <exception cref="MaximumConcurrentJobCountExceededException">If the maximum amount of concurrent jobs is at maximum, and strict mode is enabled.</exception>
-    public JobHandle CombineDependencies(JobHandle[] dependencies)
+    public JobHandle CombineDependencies(ReadOnlySpan<JobHandle> dependencies)
     {
         foreach (var dependency in dependencies)
         {
