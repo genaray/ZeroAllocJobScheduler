@@ -3,11 +3,11 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.7.34031.279
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "JobScheduler", "JobScheduler\JobScheduler.csproj", "{96AB1B0E-2501-4972-BECA-690878DB5852}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Schedulers", "JobScheduler\Schedulers.csproj", "{96AB1B0E-2501-4972-BECA-690878DB5852}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "JobScheduler.Test", "JobScheduler.Test\JobScheduler.Test.csproj", "{22CA05F3-3921-4DEE-BC02-392BBC7F885C}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Schedulers.Test", "JobScheduler.Test\Schedulers.Test.csproj", "{22CA05F3-3921-4DEE-BC02-392BBC7F885C}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "JobScheduler.Benchmarks", "JobScheduler.Benchmarks\JobScheduler.Benchmarks.csproj", "{1C11086C-D170-41A9-BDC3-76F4D617A607}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Schedulers.Benchmarks", "JobScheduler.Benchmarks\Schedulers.Benchmarks.csproj", "{1C11086C-D170-41A9-BDC3-76F4D617A607}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{DA3563CE-1A5E-4324-B8AF-461C7B9D5CD4}"
 	ProjectSection(SolutionItems) = preProject

@@ -1,7 +1,7 @@
-﻿using JobScheduler.Benchmarks.Utils.Graph;
+﻿using Schedulers.Benchmarks.Utils.Graph;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
-namespace JobScheduler.Benchmarks;
+namespace Schedulers.Benchmarks;
 
 /// <summary>
 /// Benchmark adding a ton of jobs to the queue, flushing, and then completing them.

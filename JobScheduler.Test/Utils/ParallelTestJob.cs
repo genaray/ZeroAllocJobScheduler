@@ -1,6 +1,6 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 
-namespace JobScheduler.Test.Utils;
+namespace Schedulers.Test.Utils;
 
 /// <summary>
 /// A <see cref="IJobParallelFor"/> that stores an internal array that can be tested against for validation.

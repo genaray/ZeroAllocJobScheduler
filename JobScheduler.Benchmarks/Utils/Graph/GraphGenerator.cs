@@ -1,6 +1,6 @@
-﻿using static JobScheduler.Benchmarks.Utils.Graph.DirectedAcyclicGraph;
+﻿using static Schedulers.Benchmarks.Utils.Graph.DirectedAcyclicGraph;
 
-namespace JobScheduler.Benchmarks.Utils.Graph;
+namespace Schedulers.Benchmarks.Utils.Graph;
 
 public class GraphGenerator
 {

@@ -1,4 +1,4 @@
-﻿namespace JobScheduler.Benchmarks;
+﻿namespace Schedulers.Benchmarks;
 
 [MemoryDiagnoser]
 public class QueueBenchmark

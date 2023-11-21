@@ -1,4 +1,4 @@
-﻿namespace JobScheduler.Test.Utils;
+﻿namespace Schedulers.Test.Utils;
 
 // run the fixture with multiple thread configurations
 [TestFixture(0)]

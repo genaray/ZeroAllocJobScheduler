@@ -1,6 +1,6 @@
 ﻿using System.Text;
 
-namespace JobScheduler.Benchmarks.Utils.Graph;
+namespace Schedulers.Benchmarks.Utils.Graph;
 
 public class DirectedAcyclicGraph
 {

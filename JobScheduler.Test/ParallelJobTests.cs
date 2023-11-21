@@ -1,10 +1,10 @@
 ﻿using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using BenchmarkDotNet.Jobs;
-using JobScheduler.Test.Utils;
-using JobScheduler.Test.Utils.CustomConstraints;
+using Schedulers.Test.Utils;
+using Schedulers.Test.Utils.CustomConstraints;
 
-namespace JobScheduler.Test;
+namespace Schedulers.Test;
 
 [SuppressMessage("Assertion", "NUnit2045:Use Assert.Multiple",
     Justification = "Multiple asserts are not appropriate as later code")]

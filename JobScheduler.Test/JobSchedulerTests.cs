@@ -1,6 +1,6 @@
-﻿using JobScheduler.Test.Utils;
+﻿using Schedulers.Test.Utils;
 
-namespace JobScheduler.Test;
+namespace Schedulers.Test;
 
 internal class JobSchedulerTests : SchedulerTestFixture
 {

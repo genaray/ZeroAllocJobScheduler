@@ -1,4 +1,4 @@
-﻿namespace JobScheduler.Test.Utils;
+﻿namespace Schedulers.Test.Utils;
 
 /// <summary>
 /// A test job that increments <see cref="Result"/> when executed.

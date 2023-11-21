@@ -1,6 +1,6 @@
-﻿using JobScheduler.Test.Utils;
+﻿using Schedulers.Test.Utils;
 
-namespace JobScheduler.Test;
+namespace Schedulers.Test;
 [TestFixture(0, 32)]
 [TestFixture(1, 32)]
 [TestFixture(2, 32)]
