@@ -4,9 +4,9 @@ using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using JobScheduler.Deque;
+using Schedulers.Deque;
 
-namespace JobScheduler.Test;
+namespace Schedulers.Test;
 [TestFixture]
 internal class RangeWorkStealingDequeTests
 {

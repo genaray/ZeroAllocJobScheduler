@@ -1,6 +1,6 @@
-﻿using JobScheduler.Test.Utils;
+﻿using Schedulers.Test.Utils;
 
-namespace JobScheduler.Test;
+namespace Schedulers.Test;
 
 /// <summary>
 /// A <see cref="TestJob"/> that runs an arbitrary action before incrementing its <see cref="TestJob.Result"/>

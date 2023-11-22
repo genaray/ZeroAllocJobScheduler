@@ -29,7 +29,7 @@
     
 	<ItemGroup>
 		<AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
-			<_Parameter1>JobScheduler.Test</_Parameter1>
+			<_Parameter1>Schedulers.Test</_Parameter1>
 		</AssemblyAttribute>
 	</ItemGroup>
 

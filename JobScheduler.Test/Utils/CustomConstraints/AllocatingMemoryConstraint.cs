@@ -1,6 +1,6 @@
 ﻿using NUnit.Framework.Constraints;
 
-namespace JobScheduler.Test.Utils.CustomConstraints;
+namespace Schedulers.Test.Utils.CustomConstraints;
 
 /// <summary>
 /// Ensures that the provided lambda is allocating GC memory

@@ -1,7 +1,7 @@
-﻿using JobScheduler.Benchmarks.Utils.Graph;
+﻿using Schedulers.Benchmarks.Utils.Graph;
 using System.Diagnostics;
 
-namespace JobScheduler.Test;
+namespace Schedulers.Test;
 
 [TestFixture]
 internal class GraphGeneratorTests

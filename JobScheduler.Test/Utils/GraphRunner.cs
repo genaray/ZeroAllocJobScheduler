@@ -1,6 +1,6 @@
-﻿using JobScheduler.Benchmarks.Utils.Graph;
+﻿using Schedulers.Benchmarks.Utils.Graph;
 
-namespace JobScheduler.Test.Utils;
+namespace Schedulers.Test.Utils;
 internal static class GraphRunner
 {
     /// <summary>

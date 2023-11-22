@@ -15,8 +15,8 @@
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\JobScheduler\JobScheduler.csproj" />
-		<ProjectReference Include="..\JobScheduler.Benchmarks\JobScheduler.Benchmarks.csproj" />
+      <ProjectReference Include="..\JobScheduler\Schedulers.csproj" />
+		<ProjectReference Include="..\JobScheduler.Benchmarks\Schedulers.Benchmarks.csproj" />
     </ItemGroup>
 
 </Project>

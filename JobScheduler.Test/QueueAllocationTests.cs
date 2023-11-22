@@ -1,7 +1,7 @@
-﻿using JobScheduler.Test.Utils.CustomConstraints;
+﻿using Schedulers.Test.Utils.CustomConstraints;
 using System.Collections.Concurrent;
 
-namespace JobScheduler.Test;
+namespace Schedulers.Test;
 
 [TestFixture]
 internal class QueueAllocationTests

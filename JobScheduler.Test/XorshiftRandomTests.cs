@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace JobScheduler.Test;
+namespace Schedulers.Test;
 
 [TestFixture]
 internal class XorshiftRandomTests

@@ -1,4 +1,4 @@
-﻿namespace JobScheduler.Benchmarks;
+﻿namespace Schedulers.Benchmarks;
 
 /// <summary>
 /// Benchmark adding a ton of jobs to the queue, flushing, and then completing them.

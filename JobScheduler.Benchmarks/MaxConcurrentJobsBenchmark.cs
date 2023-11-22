@@ -1,4 +1,4 @@
-﻿namespace JobScheduler.Benchmarks;
+﻿namespace Schedulers.Benchmarks;
 
 /// <summary>
 /// Benchmark the overhead of increasing the <see cref="JobScheduler.Config.MaxExpectedConcurrentJobs"/> without changing the total amount of jobs run.
