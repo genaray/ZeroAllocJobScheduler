@@ -1,5 +1,6 @@
 ﻿namespace Schedulers.Benchmarks;
 
+
 /// <summary>
 /// Increments a simple counter as the work;
 /// </summary>

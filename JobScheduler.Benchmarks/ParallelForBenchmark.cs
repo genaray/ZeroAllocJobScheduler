@@ -1,4 +1,5 @@
 ﻿using Arch.Benchmarks;
+using Schedulers;
 
 namespace Schedulers.Benchmarks;
 
@@ -8,7 +9,8 @@ namespace Schedulers.Benchmarks;
 [MemoryDiagnoser]
 public abstract class ParallelForBenchmark
 {
-    private JobScheduler _scheduler = null!;
+
+    private Schedulers.JobScheduler _scheduler = null!;
 
     /// <summary>
     /// The thread count tested

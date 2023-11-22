@@ -5,7 +5,7 @@
 ![C#](https://img.shields.io/badge/c%23-%23239120.svg?style=for-the-badge&logo=c-sharp&logoColor=white)
 
 A high-performance alloc-free C# job scheduler.  
-Schedules and executes jobs on a set of worker threads with automatic pooling of internal handles. 
+Schedules and executes jobs on a set of worker threads with automatic pooling of internal handles.
 
 # Usage
 
@@ -41,11 +41,9 @@ var scheduler = new JobScheduler(new JobScheduler.Config()
 
 // You need to pool/create jobs by yourself. This will, of course, allocate, so cache and reuse the jobs.
 var firstJob = new HeavyCalculation();  
-
 var firstHandle = scheduler.Schedule(firstJob); // Schedules job locally
 
 scheduler.Flush();                              // Dispatches all scheduled jobs to the worker threads
-
 firstHandle.Complete();                         // Blocks the thread until the job is complete.
 
 // Call Dispose at program exit, which shuts down all worker threads

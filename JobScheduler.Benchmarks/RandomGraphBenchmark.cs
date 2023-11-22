@@ -3,6 +3,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace Schedulers.Benchmarks;
 
+
 /// <summary>
 /// Benchmark adding a ton of jobs to the queue, flushing, and then completing them.
 /// </summary>
