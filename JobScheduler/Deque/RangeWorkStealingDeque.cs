@@ -50,6 +50,8 @@ internal class RangeWorkStealingDeque
         get => Interlocked.Read(ref _top) >= Volatile.Read(ref _bottom);
     }
 
+    public int Count => (int)(_top - _bottom);
+
     /// <summary>
     /// Reset the state to the the initial range. Do not call while the work-stealing operation is in progress.
     /// </summary>

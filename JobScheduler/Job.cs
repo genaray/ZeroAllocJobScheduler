@@ -9,7 +9,6 @@ namespace Schedulers;
 /// </summary>
 internal class Job
 {
-    private readonly static XorshiftRandom _random = new();
     // the scheduler this job was created with
     private readonly JobScheduler _scheduler;
 
@@ -19,28 +18,6 @@ internal class Job
 
     // The actual code of the job.
     private IJob? _work;
-
-    #region ParallelFields
-
-    // If this actually has parallel work instead, this is that work
-    private IJobParallelFor? _parallelWork;
-
-    // If we're handling a parallel job, the master job manages all the deques and lifecycle.
-    private JobHandle? _masterJob;
-
-    // If we're handling a parallel job, this is our temporary ID in the system.
-    private int _parallelJobID;
-
-    // If we're the master job, we need to track who still needs access to our properties.
-    // This is volatile because we need out-of-lock access to spin while we wait for subscribers to catch up.
-    private volatile int _parallelSubscribers;
-
-    // The master job stores one of these for each thread.
-    // Note that due to pooling, every job stores some of these. They should be pretty cheap though, and we're
-    // already doing worse memory crimes.
-    private readonly RangeWorkStealingDeque[] _workerDeques;
-
-    #endregion
 
     // The Handle of the job. 
     private readonly ManualResetEvent _waitHandle;
@@ -68,18 +45,12 @@ internal class Job
     /// and never use a <see cref="Job"/> straight from construction.
     /// </summary>
     /// <param name="dependentCapacity"></param>
-    /// <param name="threadCapacity"></param>
     /// <param name="scheduler">The scheduler this <see cref="Job"/> was created with.</param>
-    public Job(int dependentCapacity, int threadCapacity, JobScheduler scheduler)
+    public Job(int dependentCapacity, JobScheduler scheduler)
     {
         _waitHandle = new(false);
         _scheduler = scheduler;
         _dependents = new(dependentCapacity);
-        _workerDeques = new RangeWorkStealingDeque[threadCapacity];
-        for (var i = 0; i < threadCapacity; i++)
-        {
-            _workerDeques[i] = new();
-        }
 
         // we don't need to lock because adding to the pool is the final operation of this method.
         PoolSelf();
@@ -97,50 +68,10 @@ internal class Job
     /// <param name="totalThreads"></param>
     /// <param name="thisThread"></param>
     /// <returns></returns>
-    public JobHandle Schedule(IJob? work, List<JobHandle> dependencies, out bool ready,
-        IJobParallelFor? parallelWork = null, JobHandle? masterJob = null, int amount = 0, int totalThreads = 0, int thisThread = 0)
+    public JobHandle Schedule(IJob? work, List<JobHandle> dependencies, out bool ready)
     {
         lock (_jobLock)
         {
-            // Special parallel scheduling
-            if (parallelWork is not null)
-            {
-                if (work is not null)
-                {
-                    throw new ArgumentOutOfRangeException(nameof(amount));
-                }
-
-                if (amount <= 0)
-                {
-                    throw new ArgumentOutOfRangeException(nameof(amount));
-                }
-
-                _masterJob = masterJob;
-                _parallelWork = parallelWork;
-                _parallelJobID = thisThread;
-                // if masterJob is null, we set it to our own handle later.
-                if (masterJob is null)
-                {
-                    Debug.Assert(thisThread == 0);
-
-                    // split into batches equally into the worker deques
-                    // if there are extra deques left afterwards, it's OK, because on pool we made sure they were all empty.
-                    var baseAmount = amount / totalThreads;
-                    var remainder = amount % totalThreads;
-                    var start = 0;
-
-                    // just stick the remainder in the first bucket
-                    _workerDeques[0].Set(start, baseAmount + remainder, _parallelWork.BatchSize);
-                    start += baseAmount + remainder;
-                    for (var i = 1; i < totalThreads; i++)
-                    {
-                        var end = start + baseAmount;
-                        _workerDeques[i].Set(start, baseAmount, _parallelWork.BatchSize);
-                        start = end;
-                    }
-                }
-            }
-
             // At this point, nobody should be decreasing our dependency count, since we just came from the pool
             Debug.Assert(_dependencyCount == 0);
 
@@ -168,11 +99,6 @@ internal class Job
 
             JobHandle thisHandle = new(_scheduler, _version, this);
 
-            if (_parallelWork is not null && _masterJob is null)
-            {
-                _masterJob = thisHandle;
-            }
-
             return thisHandle;
         }
     }
@@ -185,122 +111,6 @@ internal class Job
     {
         // this had better be outside the lock! We don't want to block.
         _work?.Execute();
-
-        // Special parallel execution
-        if (_parallelWork is not null)
-        {
-            Debug.Assert(_masterJob is not null);
-            Debug.Assert(_work is null);
-
-            // RACE CONDITION: If _masterJob decrements and kills itself, how do we confirm it's complete?
-            // The fix is to use the TrySubscribe pattern, and Unsubscribe once we're done. Then, we ensure the master
-            // job cannot kill itself until all subscribers have finished!
-            // Also, If this is ourself, this will run fine.
-            if (_masterJob.Value.Job.TrySubscribeToParallel(_masterJob.Value.Version))
-            {
-                var workerDeques = _masterJob.Value.Job._workerDeques;
-                while (true)
-                {
-                    // process a single batch from our own queue, until we fail
-                    if (workerDeques[_parallelJobID].TryPopBottom(out var range)
-                        != RangeWorkStealingDeque.Status.Success)
-                    {
-                        break;
-                    }
-
-                    for (var i = range.Start.Value; i < range.End.Value; i++)
-                    {
-                        _parallelWork.Execute(i);
-                    }
-                }
-
-                // start work stealing
-                // this isn't perfect, and could likely be improved a bit with a more Lin et al approach.
-                // But a full Lin et al approach is irrelevant because things can't be added to deques.
-                // So this random search method works OK for now.
-                // (the main takeaway from lin et al here is to track num_thieves and num_actives?)
-                while (true)
-                {
-                    RangeWorkStealingDeque? victim = null;
-
-                    // start at a random place in the list, and find a victim from there
-                    var start = _random.Next(0, workerDeques.Length);
-                    var i = start;
-                    do
-                    {
-                        var vic = workerDeques[i];
-                        if (!vic.IsEmpty)
-                        {
-                            victim = vic;
-                            break;
-                        }
-
-                        i++;
-                        if (i >= workerDeques.Length)
-                        {
-                            i = 0;
-                        }
-                    }
-                    while (i != start);
-
-                    // We've confirmed all deques are empty, we're done
-                    if (victim is null)
-                    {
-                        break;
-                    }
-
-                    // Commence the steal!
-                    // This will just try again and again in the case of a contention, which may waste power.
-                    // But since parallel fors are generally short, we want to dedicate resources to them.
-                    // This is equivalent to an infinite STEAL_BOUND in Lin et al.
-                    while (victim.TrySteal(out var range) != RangeWorkStealingDeque.Status.Empty)
-                    {
-                        for (var r = range.Start.Value; r < range.End.Value; r++)
-                        {
-                            _parallelWork.Execute(r);
-                        }
-                    }
-                }
-
-                _masterJob.Value.Job.UnsubscribeFromParallel(_masterJob.Value.Version);
-#if DEBUG
-                foreach (var deque in workerDeques)
-                {
-                    Debug.Assert(deque.IsEmpty);
-                }
-#endif
-            }
-
-            // If we were the master job, and someone is still waiting, we're not allowed to continue until they've unsubscribed.
-            // Since we know at this point that we're done with all the deques, we just spin until all the subscribers have finished
-            // their batches. Then we're allowed to clean up. In the meantime, nobody can possibly resubscribe because the deques are
-            // empty.
-            if (_masterJob.Value.Job == this && _parallelSubscribers > 0)
-            {
-                var spin = new SpinWait();
-#if DEBUG
-                foreach (var deque in _workerDeques)
-                {
-                    Debug.Assert(deque.IsEmpty);
-                }
-#endif
-
-                // We're positive that _parallelSubscribers can never increase at this point, because the deques are empty.
-                // (all TrySubscribeToParallel will fail).
-                // So we don't have to lock while checking.
-                // And because _parallelSubscribers is volatile, there won't be any non-atomic nonsense with the decrementing.
-                while (_parallelSubscribers > 0)
-                {
-                    spin.SpinOnce();
-                }
-            }
-
-            if (_masterJob.Value.Job == this)
-            {
-                // We're now sure everyone's completed.
-                _parallelWork.Finish();
-            }
-        }
 
         // You may think that we have to manage parallel dependencies here, but actually we don't!
         // The handle is for the master job, always. And if we're the master job, we're about to resolve those.
@@ -337,44 +147,6 @@ internal class Job
             {
                 PoolSelf();
             }
-        }
-    }
-
-    private void UnsubscribeFromParallel(int version)
-    {
-        lock (_jobLock)
-        {
-            Debug.Assert(version == _version);
-            _parallelSubscribers--;
-        }
-    }
-
-    private bool TrySubscribeToParallel(int version)
-    {
-        lock (_jobLock)
-        {
-            if (_version != version || _isComplete)
-            {
-                return false;
-            }
-
-            // check to see if there are any empty valid deques before we allow subscribing
-            var foundDeque = false;
-            foreach (var deque in _workerDeques)
-            {
-                if (!deque.IsEmpty)
-                {
-                    foundDeque = true;
-                }
-            }
-
-            if (!foundDeque)
-            {
-                return false;
-            }
-
-            _parallelSubscribers++;
-            return true;
         }
     }
 
@@ -425,14 +197,6 @@ internal class Job
     private void PoolSelf()
     {
         _version++;
-        _parallelWork = null;
-        _parallelSubscribers = 0;
-#if DEBUG
-        foreach (var deque in _workerDeques)
-        {
-            Debug.Assert(deque.IsEmpty);
-        }  
-#endif
         _dependents.Clear();
         _dependencyCount = 0;
         _waitHandleSubscriptionCount = 0;
