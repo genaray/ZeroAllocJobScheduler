@@ -13,6 +13,12 @@ internal class Job
     // the scheduler this job was created with
     private readonly JobScheduler _scheduler;
 
+    /// <summary>
+    ///     An unchanging ID that goes with the Job instance. Used primarily by <see cref="JobHandle"/>
+    ///     for looking up jobs.
+    /// </summary>
+    internal long InstanceId { get; }
+
     // The version of this job. Many methods must have a version passed in. If that doesn't match ours,
     // it means the job is already complete.
     private int _version = 0;
@@ -70,12 +76,13 @@ internal class Job
     /// <param name="dependentCapacity"></param>
     /// <param name="threadCapacity"></param>
     /// <param name="scheduler">The scheduler this <see cref="Job"/> was created with.</param>
-    public Job(int dependentCapacity, int threadCapacity, JobScheduler scheduler)
+    public Job(int dependentCapacity, int threadCapacity, JobScheduler scheduler, int instanceId)
     {
         _waitHandle = new(false);
         _scheduler = scheduler;
         _dependents = new(dependentCapacity);
         _workerDeques = new RangeWorkStealingDeque[threadCapacity];
+        InstanceId = instanceId;
         for (var i = 0; i < threadCapacity; i++)
         {
             _workerDeques[i] = new();
@@ -150,15 +157,16 @@ internal class Job
                 // because if we don't, we might mess up their _dependents array!
                 // Also we don't want handle.Job._isComplete to switch over after us reading it; that
                 // would screw everything up.
-                lock (handle.Job._jobLock)
+                var otherJob = handle.Job;
+                lock (otherJob._jobLock)
                 {
                     // exclude complete dependencies
-                    if (handle.Version != handle.Job._version || handle.Job._isComplete)
+                    if (handle.Version != otherJob._version || otherJob._isComplete)
                     {
                         continue;
                     }
 
-                    handle.Job._dependents.Add(this);
+                    otherJob._dependents.Add(this);
                     _dependencyCount++;
                 }
             }
@@ -166,7 +174,7 @@ internal class Job
             ready = _dependencyCount == 0; // we don't have any active dependencies
             _work = work;
 
-            JobHandle thisHandle = new(_scheduler, _version, this);
+            JobHandle thisHandle = new(_scheduler.InstanceId, _version, InstanceId);
 
             if (_parallelWork is not null && _masterJob is null)
             {
