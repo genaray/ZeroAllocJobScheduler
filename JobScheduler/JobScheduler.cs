@@ -82,12 +82,22 @@ public partial class JobScheduler : IDisposable
     // a pool for recyling managed Jobs
     private readonly ConcurrentQueue<Job> _jobPool;
 
+    private static int _lastInstanceId = -1;
+
+    /// <summary>
+    ///     A unique ID for this particular Scheduler
+    /// </summary>
+    internal int InstanceId { get; }
+
+    private int _lastJobId = -1;
+
     /// <summary>
     /// Creates an instance of the <see cref="JobScheduler"/>
     /// </summary>
     /// <param name="settings">The <see cref="Config"/> to use for this instance of <see cref="JobScheduler"/></param>
     public JobScheduler(in Config settings)
     {
+        InstanceId = Interlocked.Increment(ref _lastInstanceId);
         MainThreadID = Thread.CurrentThread.ManagedThreadId;
 
         ThreadCount = settings.ThreadCount;
@@ -99,6 +109,8 @@ public partial class JobScheduler : IDisposable
         _strictAllocationMode = settings.StrictAllocationMode;
         _maxConcurrentJobs = settings.MaxExpectedConcurrentJobs;
         _dependencyCache = new(settings.MaxExpectedConcurrentJobs - 1);
+
+        JobHandle.InitializeScheduler(InstanceId, this, _maxConcurrentJobs);
 
         // pre-fill all of our data structures up to the concurrent job max
         QueuedJobs = new(settings.MaxExpectedConcurrentJobs);
@@ -134,7 +146,8 @@ public partial class JobScheduler : IDisposable
         for (var i = 0; i < settings.MaxExpectedConcurrentJobs; i++)
         {
             // this will automatically pool
-            new Job(settings.MaxExpectedConcurrentJobs - 1, ThreadCount, this);
+            var j = new Job(settings.MaxExpectedConcurrentJobs - 1, ThreadCount, this, Interlocked.Increment(ref _lastJobId));
+            JobHandle.TrackJob(InstanceId, j);
         }
 
         InitAlgorithm(ThreadCount, _maxConcurrentJobs, CancellationTokenSource.Token);
@@ -189,7 +202,8 @@ public partial class JobScheduler : IDisposable
             }
             // We are spontaneously allocating, so to save memory, don't use an initial size
             // This will automatically pool!
-            new Job(0, ThreadCount, this);
+            var j = new Job(0, ThreadCount, this, Interlocked.Increment(ref _lastJobId));
+            JobHandle.TrackJob(InstanceId, j);
         }
 
         return job;
@@ -395,12 +409,13 @@ public partial class JobScheduler : IDisposable
     /// </summary>
     /// <param name="handle"></param>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal void Complete(JobHandle handle)
+    internal void Complete(in JobHandle handle)
     {
-        if (handle.Job.TrySubscribe(handle.Version, out var waitHandle))
+        var job = handle.Job;
+        if (job.TrySubscribe(handle.Version, out var waitHandle))
         {
             waitHandle.WaitOne();
-            handle.Job.Unsubscribe(handle.Version);
+            job.Unsubscribe(handle.Version);
         }
     }
 
@@ -433,5 +448,7 @@ public partial class JobScheduler : IDisposable
         // either this works and threads are signalled to go into shutdown mode, which eventually dispose..
         // or they somehow managed to 100% shutdown and dispose already, in which case his does nothing.
         _notifier.NotifyAll();
+
+        JobHandle.DisposeScheduler(InstanceId);
     }
 }

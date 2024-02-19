@@ -2,13 +2,10 @@
 
 namespace Schedulers.Test;
 
-internal class CombineDependenciesTests : SchedulerTestFixture
+internal class CombineDependenciesTests(int threads) : SchedulerTestFixture(threads)
 {
-    public CombineDependenciesTests(int threads) : base(threads) { }
-
-    private void CombineTwoDependencies(JobHandle[] cachedList)
+    private void CombineTwoDependencies()
     {
-        Assert.That(cachedList, Has.Length.EqualTo(2));
         var job1 = new SleepJob(10);
         var job2 = new SleepJob(10);
         ActionJob job3 = null!;
@@ -24,9 +21,7 @@ internal class CombineDependenciesTests : SchedulerTestFixture
 
         var job1Handle = Scheduler.Schedule(job1);
         var job2Handle = Scheduler.Schedule(job2);
-        cachedList[0] = job1Handle;
-        cachedList[1] = job2Handle;
-        var job1And2Handle = Scheduler.CombineDependencies(cachedList);
+        var job1And2Handle = Scheduler.CombineDependencies(stackalloc JobHandle[] { job1Handle, job2Handle });
         var job3Handle = Scheduler.Schedule(job3, job1And2Handle);
 
         Assert.Multiple(() =>
@@ -50,16 +45,15 @@ internal class CombineDependenciesTests : SchedulerTestFixture
     [Test]
     public void CombineTwoDependenciesFunctions()
     {
-        CombineTwoDependencies(new JobHandle[2]);
+        CombineTwoDependencies();
     }
 
     [Test]
     public void CombineTwoDependenciesCanReuseList()
     {
-        var list = new JobHandle[2];
         for (var i = 0; i < 3; i++)
         {
-            CombineTwoDependencies(list);
+            CombineTwoDependencies();
         }
     }
 
@@ -67,8 +61,8 @@ internal class CombineDependenciesTests : SchedulerTestFixture
     {
         public DependencyChainElement() { }
 
-        public List<JobHandle> Handles { get; set; } = new();
-        public List<SleepJob> Jobs { get; set; } = new();
+        public List<JobHandle> Handles { get; set; } = [];
+        public List<SleepJob> Jobs { get; set; } = [];
         public JobHandle ChainHandle { get; set; }
     }
 
@@ -84,7 +78,7 @@ internal class CombineDependenciesTests : SchedulerTestFixture
         // complete without us testing whether it's completing in the right order!)
         var timeout = 5;
 
-        List<DependencyChainElement> chain = new();
+        List<DependencyChainElement> chain = [];
         for (var i = 0; i < chainLength; i++)
         {
             DependencyChainElement link = new();
