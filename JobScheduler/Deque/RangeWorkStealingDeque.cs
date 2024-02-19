@@ -32,6 +32,7 @@ internal class RangeWorkStealingDeque
     private int _start;
     private int _end;
     private int _batchSize;
+    private bool _empty = true;
 
     /// <summary>
     /// Initializes an empty <see cref="RangeWorkStealingDeque"/>.
@@ -47,7 +48,7 @@ internal class RangeWorkStealingDeque
     /// </summary>
     public bool IsEmpty
     {
-        get => Interlocked.Read(ref _top) >= Volatile.Read(ref _bottom);
+        get => _empty;
     }
 
     /// <summary>
@@ -69,6 +70,7 @@ internal class RangeWorkStealingDeque
         _start = start;
         _end = start + count;
         _batchSize = batchSize;
+        _empty = false;
     }
 
     // Is oldVal equal to our current top? If so, we're good; exchange them and return true. If not, we went
@@ -125,12 +127,14 @@ internal class RangeWorkStealingDeque
         {
             // Reset to empty canon. Remember, our t is out of date by one, so after this _top == _bottom
             Volatile.Write(ref _bottom, t + 1);
+            _empty = true;
             return Status.Empty;
         }
 
         // We won the race! Return the full remaining range and reset to empty canon.
         Volatile.Write(ref _bottom, t + 1);
         range = popped;
+        _empty = true;
         return Status.Success;
     }
 
@@ -151,6 +155,7 @@ internal class RangeWorkStealingDeque
         // If we're empty, don't even try.
         if (size <= 0)
         {
+            _empty = true;
             return Status.Empty;
         }
 
@@ -167,6 +172,11 @@ internal class RangeWorkStealingDeque
 
         // We won!
         range = stolen;
+        if (b - (t + 1) <= 0)
+        {
+            _empty = true;
+        }
+
         return Status.Success;
     }
 

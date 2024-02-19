@@ -1,6 +1,5 @@
 ﻿namespace Schedulers.Benchmarks;
 
-
 /// <summary>
 /// Increments a simple counter as the work;
 /// </summary>
@@ -43,9 +42,28 @@ public class ParallelForBenchmarkMatrix : ParallelForBenchmark
         var col = index % _dim;
         float sum = 0;
 
-        for (var k = 0; k < _dim; k++)
+        // test more complicated work as indices get higher to test work stealing
+        var reps = 0;
+        if (index < Size / 3)
         {
-            sum += _matrixA[(row * _dim) + k] * _matrixB[(k * _dim) + col];
+            reps = 1;
+        }
+        else if (index < Size / 3 * 2)
+        {
+            reps = 3;
+        }
+        else
+        {
+            reps = 6;
+        }
+
+        for (var i = 0; i < reps; i++)
+        {
+            sum = 0;
+            for (var k = 0; k < _dim; k++)
+            {
+                sum += _matrixA[(row * _dim) + k] * _matrixB[(k * _dim) + col];
+            }
         }
 
         _matrixC[index] = sum;
