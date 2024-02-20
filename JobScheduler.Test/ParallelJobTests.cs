@@ -221,7 +221,7 @@ internal class ParallelJobTests : SchedulerTestFixture
     [TestCase(5, 64, 250, 512, 3)]
     public void ParallelJobGraphCompletes(int graphCount, int nodesPerGraph, int waves, int size, int batchSize)
     {
-        Dictionary<int, ParallelTestJob> jobs = new();
+        Dictionary<int, ParallelTestJob> jobs = [];
 
         GraphRunner.TestGraph(graphCount, nodesPerGraph, waves,
             (index, dependency) =>
@@ -237,27 +237,20 @@ internal class ParallelJobTests : SchedulerTestFixture
             });
     }
 
-    private class ParallelSleepJob : IJobParallelFor
+    private class ParallelSleepJob(int expectedSize, int sleep) : IJobParallelFor
     {
-        private readonly int _sleep;
-
-        public ParallelSleepJob(int expectedSize, int sleep)
-        {
-            ThreadIDs = new int[expectedSize];
-            _sleep = sleep;
-        }
-        public int[] ThreadIDs { get; }
+        public int[] ThreadIDs { get; } = new int[expectedSize];
 
         public int ThreadCount { get => 0; }
         // keep a low batch size if we sleep (lots of work simulated)
-        public int BatchSize { get => _sleep > 0 ? 32 : 1; }
+        public int BatchSize { get => sleep > 0 ? 32 : 1; }
 
         public void Execute(int index)
         {
             ThreadIDs[index] = Environment.CurrentManagedThreadId;
-            if (_sleep > 0)
+            if (sleep > 0)
             {
-                Thread.Sleep(_sleep);
+                Thread.Sleep(sleep);
             }
         }
 
@@ -277,6 +270,45 @@ internal class ParallelJobTests : SchedulerTestFixture
         handle.Complete();
 
         Assert.That(job.ThreadIDs.Distinct(), Has.Exactly(Scheduler.ThreadCount).Items);
+    }
+
+    private class SegmentedParallelJob(int expectedSize, int threadCount) : IJobParallelFor
+    {
+        public int[] ThreadIDs { get; } = new int[expectedSize];
+
+        public int ThreadCount { get => 0; }
+
+        public int BatchSize
+        {
+            get => 1;
+        }
+
+        public void Execute(int index)
+        {
+            ThreadIDs[index] = Environment.CurrentManagedThreadId;
+            // in first thread's batch, sleep. This should later be stolen by a bunch of other threads.
+            if (index < expectedSize / threadCount)
+            {
+                Thread.Sleep(1);
+            }
+        }
+
+        public void Finish()
+        {
+            Assert.That(ThreadIDs, Does.Not.Contain(0));
+        }
+    }
+
+    [TestCase(256)]
+    public void ParallelJobDoesWorkStealing(int size)
+    {
+        var job = new SegmentedParallelJob(size, Scheduler.ThreadCount);
+        var handle = Scheduler.Schedule(job, size);
+        Scheduler.Flush();
+        handle.Complete();
+
+        // the first jobs should have an even distribution of threads
+        Assert.That(job.ThreadIDs.Take(size / Scheduler.ThreadCount).Distinct(), Has.Exactly(Scheduler.ThreadCount).Items);
     }
 }
 

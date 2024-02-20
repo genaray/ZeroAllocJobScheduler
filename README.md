@@ -89,3 +89,50 @@ JobHandle.CompleteAll(List<JobHandle> handles);
 ```
 
 Or, if you don't want to maintain a list or array, you can just call `handle.Complete()` on all your handles, in any order.
+
+
+# Parallel-For support
+
+Instead of `IJob`, you may extend your class from `IJobParallelFor` to implement foreach-style indexing on a job. This is useful for when you have very many small operations, and it would be inefficient to schedule a whole job for each one; for example, iterating through a giant set of data.
+
+Define an `IJobParallelFor` like so:
+
+```csharp
+public class ManyCalculations : IJobParallelFor
+{
+  // Execute will be called for each i for the specified amount
+  public void Execute(int i)
+  {
+    // ... do some operation with i here
+  }
+
+  // Finish will be called once all operations are completed.
+  public void Finish()
+  {
+    Debug.Log("All done!");
+  }
+
+  // BatchSize is a measure of how "complicated" your operations are. Detailed below.
+  public int BatchSize => 32;
+
+  // Restrict the number of spawned jobs to decrease memory usage and overhead. Keep this at 0 to use the Scheduler's number of active threads (recommended).
+  public int ThreadCount => 0;
+}
+
+```
+
+Run your `IJobParallelFor` with this syntax:
+
+
+```csharp
+var job = new ManyCalculations();
+var handle = scheduler.Schedule(job, 512); // Execute will be called 512 times
+
+
+```
+
+However, there are several caveats:
+
+* Don't overuse `IJobParallelFor`. In general, over-parallelization is a bad thing. Only schedule your job in parallel if it is truly iterating a huge amount of times, and make sure to always profile when dealing with multithreaded code.
+* You must choose a sane `BatchSize` for the work inside your job. If you have very many small tasks that complete very quickly, a higher batch size will dispatch more indices to each thread at once, minimizing scheduler overhead. On the other hand, if you have complicated (or mixed-complexity) tasks, a smaller batch size will maximize the ability for threads to use work-stealing and thus might complete faster. The only way to know what batch size to use is to profile your code and see what's faster!
+* Scheduling just a single `IJobParallelFor` actually schedules `ThreadCount` jobs on the backend, decreasing the jobs pool. If you make a lot of these, the amount of jobs in play could quickly increase. For example, on a 16-core CPU, with default settings, spawning 8 `IJobParallelFor` would spawn 128 jobs on the backend. The scheduler can certainly handle it, but you'll probably want to keep an eye on `MaxExpectedCurrentJobs` if you want to keep the scheduler truly zero-allocation.

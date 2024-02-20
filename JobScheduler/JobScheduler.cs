@@ -319,9 +319,12 @@ public partial class JobScheduler : IDisposable
     ///     Note that this will schedule as many jobs as specified in <see cref="IJobParallelFor"/> or the maximum thread count, whichever is less
     ///     (or the maximum thread count if the threads provided are 0). See <see cref="IJobParallelFor"/> for details.
     /// </remarks>
-    /// <param name="job"></param>
-    /// <param name="amount"></param>
-    /// <param name="dependency"></param>
+    /// <param name="job">The <see cref="IJobParallelFor"/> to schedule.</param>
+    /// <param name="amount">
+    ///     The amount of indices to execute.
+    ///     <see cref="IJobParallelFor.Execute(int)"/> will be called for each value in <c>[0, <paramref name="amount"/>)</c>.
+    /// </param>
+    /// <param name="dependency">A <see cref="JobHandle"/> dependency to require completion of first.</param>
     /// <returns>The <see cref="JobHandle"/> of a job representing the full task.</returns>
     /// <exception cref="InvalidOperationException">If called on a different thread than the <see cref="JobScheduler"/> was constructed on</exception>
     /// <exception cref="MaximumConcurrentJobCountExceededException">If the maximum amount of concurrent jobs is at maximum, and strict mode is enabled.</exception>

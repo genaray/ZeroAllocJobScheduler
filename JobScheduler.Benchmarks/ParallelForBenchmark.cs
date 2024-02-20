@@ -9,7 +9,6 @@ namespace Schedulers.Benchmarks;
 [MemoryDiagnoser]
 public abstract class ParallelForBenchmark
 {
-
     private Schedulers.JobScheduler _scheduler = null!;
 
     /// <summary>
@@ -77,6 +76,30 @@ public abstract class ParallelForBenchmark
 
     private BasicParallelJob _basicParallel = null!;
 
+    private class BasicRegularJob : IJob
+    {
+        private readonly ParallelForBenchmark _benchmark;
+        private readonly int _start;
+        private readonly int _size;
+        public BasicRegularJob(ParallelForBenchmark benchmark, int start, int size)
+        {
+            _benchmark = benchmark;
+            _start = start;
+            _size = size;
+        }
+
+        public void Execute()
+        {
+            for (var i = _start; i < _start + _size; i++)
+            {
+                _benchmark.Work(i);
+            }
+        }
+    }
+
+    private List<BasicRegularJob> _basicRegulars = null!;
+    private List<JobHandle> _jobHandles = null!;
+
     // to give Parallel.For the best chance possible of competing well, we allow it to not allocate
     private static ParallelForBenchmark _currentBenchmarkCache = null!;
 
@@ -92,6 +115,28 @@ public abstract class ParallelForBenchmark
         };
         _scheduler = new(config);
         _basicParallel = new(this);
+        _basicRegulars = new(_scheduler.ThreadCount);
+
+        var remaining = Size;
+        var amountPerThread = Size / _scheduler.ThreadCount;
+        for (var i = 0; i < _scheduler.ThreadCount; i++)
+        {
+            var amount = amountPerThread;
+            if (remaining < amount)
+            {
+                amount = remaining;
+            }
+
+            if (remaining == 0)
+            {
+                break;
+            }
+
+            _basicRegulars.Add(new(this, i * amountPerThread, amount));
+            remaining -= amount;
+        }
+
+        _jobHandles = new(_scheduler.ThreadCount);
         _currentBenchmarkCache = this;
         Init();
     }
@@ -125,7 +170,7 @@ public abstract class ParallelForBenchmark
     }
 
     [Benchmark]
-    public void BenchmarkStandardParallelFor()
+    public void BenchmarkDotNetParallelFor()
     {
         for (var w = 0; w < Waves; w++)
         {
@@ -141,6 +186,27 @@ public abstract class ParallelForBenchmark
             var handle = _scheduler.Schedule(_basicParallel, Size);
             _scheduler.Flush();
             handle.Complete();
+        }
+    }
+
+    [Benchmark]
+    public void BenchmarkNaiveParallelFor()
+    {
+        for (var w = 0; w < Waves; w++)
+        {
+            foreach (var job in _basicRegulars)
+            {
+                _jobHandles.Add(_scheduler.Schedule(job));
+            }
+
+            _scheduler.Flush();
+
+            foreach (var handle in _jobHandles)
+            {
+                handle.Complete();
+            }
+
+            _jobHandles.Clear();
         }
     }
 }
