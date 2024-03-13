@@ -1,24 +1,25 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        
+
         <TargetFramework>netstandard2.1</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <LangVersion>latest</LangVersion>
 
+        <IncludeSymbols>true</IncludeSymbols>
+        <SymbolPackageFormat>snupkg</SymbolPackageFormat>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
         <DocumentationFile>bin\$(Configuration)\$(TargetFramework)\$(AssemblyName).xml</DocumentationFile>
 
         <PackageId>ZeroAllocJobScheduler</PackageId>
         <Title>ZeroAllocJobScheduler</Title>
-        <Version>1.0.2</Version>
+        <Version>1.1.2</Version>
         <Authors>genaray</Authors>
         <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
         <Description>A high performance alloc free Job/Task Scheduler.</Description>
-        <PackageReleaseNotes>
-            Initial release. 
-        </PackageReleaseNotes>
+        <PackageReleaseNotes>Added dependencies.
+Several improvements and bug fixes. </PackageReleaseNotes>
         <PackageTags>c#;.net;.net6;.net7;gamedev; game-development; game-engine; jobs; tasks;</PackageTags>
 
         <PackageProjectUrl>https://github.com/genaray/ZeroAllocJobScheduler</PackageProjectUrl>
@@ -26,7 +27,7 @@
         <RepositoryType>git</RepositoryType>
         <IsPackable>true</IsPackable>
     </PropertyGroup>
-    
+
 	<ItemGroup>
 		<AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
 			<_Parameter1>Schedulers.Test</_Parameter1>
