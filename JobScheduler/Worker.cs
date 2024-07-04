@@ -41,42 +41,50 @@ internal struct Worker
 
     private void Run()
     {
-        while (_running)
+        try
         {
-            // Process job in own queue
-            var exists = _queue.TryPopBottom(out var job);
-            if (exists)
+            while (_running)
             {
-                job._job.Execute();
-                _jobScheduler.Finish(job);
-            }
-            else
-            {
-                // Try to steal job from different queue
-                for (var i = 0; i < _jobScheduler.Queues.Count; i++)
+                // Process job in own queue
+                var exists = _queue.TryPopBottom(out var job);
+                if (exists)
                 {
-                    if (i == _workerId)
-                    {
-                        continue;
-                    }
-
-                    exists = _jobScheduler.Queues[i].TrySteal(out job);
-                    if (!exists)
-                    {
-                        continue;
-                    }
-
                     job._job.Execute();
                     _jobScheduler.Finish(job);
-                    break;
                 }
-
-                if (!exists)
+                else
                 {
-                    // No work found, yield to give other threads a chance
-                    Thread.Yield();
+                    // Try to steal job from different queue
+                    for (var i = 0; i < _jobScheduler.Queues.Count; i++)
+                    {
+                        if (i == _workerId)
+                        {
+                            continue;
+                        }
+
+                        //Console.WriteLine($"Test: {_jobScheduler} and {_jobScheduler.Queues} and {job}");
+                        exists = _jobScheduler.Queues[i].TrySteal(out job);
+                        if (!exists)
+                        {
+                            continue;
+                        }
+
+                        job._job.Execute();
+                        _jobScheduler.Finish(job);
+                        break;
+                    }
+
+                    if (!exists)
+                    {
+                        // No work found, yield to give other threads a chance
+                        Thread.Yield();
+                    }
                 }
             }
+        }
+        catch(Exception e)
+        {
+            throw e;
         }
     }
 }
