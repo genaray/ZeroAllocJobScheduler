@@ -2,22 +2,25 @@
 
 namespace Schedulers;
 
-internal struct Worker
+internal class Worker
 {
-    private readonly JobScheduler _jobScheduler;
 
+    private readonly int _workerId;
     private readonly Thread _thread;
     private readonly WorkStealingDeque<JobHandle> _queue;
-    private volatile bool _running;
-    private readonly int _workerId;
+
+    private readonly JobScheduler _jobScheduler;
+    private volatile CancellationTokenSource _cancellationToken;
 
     public Worker(JobScheduler jobScheduler, int id)
     {
-        _jobScheduler = jobScheduler;
         _workerId = id;
         _queue = new WorkStealingDeque<JobHandle>(32);
-        _running = true;
-        _thread = new Thread(Run);
+
+        _jobScheduler = jobScheduler;
+        _cancellationToken = new CancellationTokenSource();
+
+        _thread = new Thread(() => Run(_cancellationToken.Token));
     }
 
     public WorkStealingDeque<JobHandle> Queue
@@ -32,18 +35,14 @@ internal struct Worker
 
     public void Stop()
     {
-        _running = false;
-        if (!_thread.Join(500))
-        {
-            _thread.Interrupt();
-        }
+        _cancellationToken.Cancel();
     }
 
-    private void Run()
+    private void Run(CancellationToken token)
     {
         try
         {
-            while (_running)
+            while (!token.IsCancellationRequested)
             {
                 // Process job in own queue
                 var exists = _queue.TryPopBottom(out var job);
@@ -82,9 +81,13 @@ internal struct Worker
                 }
             }
         }
-        catch(Exception e)
+        catch (OperationCanceledException)
         {
-            throw e;
+            Console.WriteLine("Operation was canceled");
+        }
+        finally
+        {
+            Console.WriteLine("Worker thread is cleaning up and exiting");
         }
     }
 }

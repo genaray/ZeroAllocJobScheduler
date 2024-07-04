@@ -34,6 +34,8 @@ public partial class JobScheduler : IDisposable
             worker.Start();
         }
     }
+
+    internal CancellationTokenSource CancellationTokenSource { get; set; }
     internal List<WorkStealingDeque<JobHandle>> Queues { get; } = new();
     internal List<Worker> Workers { get; } = new();
 
