@@ -10,6 +10,7 @@ namespace Schedulers.Benchmarks;
 [MemoryDiagnoser]
 public class RandomGraphBenchmark
 {
+    /*
     private JobScheduler Scheduler = null!;
 
     /// <summary>
@@ -128,5 +129,5 @@ public class RandomGraphBenchmark
                 handle.Complete();
             }
         }
-    }
+    }*/
 }

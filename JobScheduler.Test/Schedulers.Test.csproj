@@ -1,10 +1,11 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-		<TargetFramework>net7.0</TargetFramework>
+		<TargetFramework>net8.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <LangVersion>latest</LangVersion>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     </PropertyGroup>
 
     <ItemGroup>
@@ -17,6 +18,10 @@
     <ItemGroup>
       <ProjectReference Include="..\JobScheduler\Schedulers.csproj" />
 		<ProjectReference Include="..\JobScheduler.Benchmarks\Schedulers.Benchmarks.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Folder Include="Utils\" />
     </ItemGroup>
 
 </Project>

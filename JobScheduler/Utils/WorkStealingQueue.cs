@@ -1,4 +1,5 @@
-﻿namespace Schedulers.Deque;
+﻿namespace Schedulers.Utils;
+
 
 /// <summary>
 ///     A <see cref="WorkStealingDeque{T}"/> is an implementation of the Chase &amp; Lev Dynamic Circular Work-Stealing Deque [1]
@@ -33,14 +34,14 @@ internal class WorkStealingDeque<T>
     //
     // I.e. if our _top is equal to the actual top, we can CAS, and therefore we won the race. Otherwise, someone else (or even multiple
     // others) incremented _top first, and we lost the race, so we give up our operation.
-    // 
+    //
     // Other than that, it's a very standard CircularArray-based Deque, where the top and bottom pointers move around depending on the
     // operation. The owner pushes and pops from the bottom, moving the bottom around wherever, and the stealer pops from the top, exclusively
     // raising the top value and never EVER lowering it.
     //
     // This isn't a complete Deque, because the operation PushTop would force us to decrement Top (which would violate our ability to use CAS
-    // to act as a "version" of the top). 
-    // 
+    // to act as a "version" of the top).
+    //
     // A valid array can be visualized like this:
     //     t        b
     // [_  x  y  z  _  _]
@@ -53,11 +54,11 @@ internal class WorkStealingDeque<T>
     // Pushing a to the bottom looks like this (incrementing bottom to make the queue bigger; ONLY thread-safe from the owning thread):
     //     t           b
     // [_  x  y  z  a  _]
-    // 
+    //
     // Stealing* looks like this (incrementing top to make the queue smaller; thread-safe):
     //        t     b
     // [_  _  y  z  _  _]  => stole x!
-    // 
+    //
     // Popping* z from the bottom looks like this (decrementing bottom to make the queue smaller; ONLY thread-safe from the owning thread):
     //     t     b
     // [_  x  y  _  _  _] => popped z!
@@ -166,7 +167,7 @@ internal class WorkStealingDeque<T>
 
         // we're popping, so decrement the bottom in advance.
         // Doing this in advance ensures that we "reserve space" in the size, so that even if someone steals,
-        // they can't steal past this _bottom (their size would return 0, and they wouldn't steal). 
+        // they can't steal past this _bottom (their size would return 0, and they wouldn't steal).
         // At the end of this method, if we need to adjust this (i.e. there ended up being nothing to steal)
         // we resolve this.
         b--;

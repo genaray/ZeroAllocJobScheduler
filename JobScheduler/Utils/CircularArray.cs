@@ -1,4 +1,5 @@
-﻿namespace Schedulers.Deque;
+﻿namespace Schedulers.Utils;
+
 
 /// <summary>
 /// A <see cref="CircularArray{T}"/> as found in Chase and Lev pg. 3 [1]

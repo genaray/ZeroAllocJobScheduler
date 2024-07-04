@@ -52,7 +52,7 @@ public abstract class ParallelForBenchmark
     /// <returns>true if the data is valid, false otherwise</returns>
     protected abstract bool Validate();
 
-    private class BasicParallelJob : IJobParallelFor
+    private class BasicParallelJob
     {
         private readonly ParallelForBenchmark _benchmark;
         public int ThreadCount
@@ -103,6 +103,7 @@ public abstract class ParallelForBenchmark
     // to give Parallel.For the best chance possible of competing well, we allow it to not allocate
     private static ParallelForBenchmark _currentBenchmarkCache = null!;
 
+    /*
     [IterationSetup]
     public void Setup()
     {
@@ -208,5 +209,5 @@ public abstract class ParallelForBenchmark
 
             _jobHandles.Clear();
         }
-    }
+    }*/
 }

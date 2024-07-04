@@ -26,12 +26,17 @@ Several improvements and bug fixes. </PackageReleaseNotes>
         <RepositoryUrl>https://github.com/genaray/ZeroAllocJobScheduler.git</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
         <IsPackable>true</IsPackable>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     </PropertyGroup>
 
 	<ItemGroup>
 		<AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
 			<_Parameter1>Schedulers.Test</_Parameter1>
 		</AssemblyAttribute>
+	</ItemGroup>
+
+	<ItemGroup>
+	  <PackageReference Include="CommunityToolkit.HighPerformance" Version="8.2.2" />
 	</ItemGroup>
 
 </Project>

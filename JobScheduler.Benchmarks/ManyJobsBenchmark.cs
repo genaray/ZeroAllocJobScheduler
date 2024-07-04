@@ -6,6 +6,7 @@
 [MemoryDiagnoser]
 public class ManyJobsBenchmark
 {
+    /*
     private JobScheduler _scheduler = null!;
 
     /// <summary>
@@ -89,5 +90,5 @@ public class ManyJobsBenchmark
                 _handles[i].Complete();
             }
         }
-    }
+    }*/
 }

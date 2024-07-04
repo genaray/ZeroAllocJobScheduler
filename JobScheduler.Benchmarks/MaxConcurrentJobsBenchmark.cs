@@ -6,6 +6,7 @@
 [MemoryDiagnoser]
 public class MaxConcurrentJobsBenchmark
 {
+    /*
     private JobScheduler _scheduler = null!;
 
     /// <summary>
@@ -77,5 +78,5 @@ public class MaxConcurrentJobsBenchmark
             _scheduler.Flush();
             jobsSoFar++;
         }
-    }
+    }*/
 }
