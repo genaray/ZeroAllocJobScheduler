@@ -6,9 +6,8 @@ namespace Schedulers;
 /// <summary>
 /// The <see cref="JobHandle"/> struct
 /// is used to control and await a scheduled <see cref="IJob"/>.
-/// <remarks>Size is exactly 32 bytes to fit perfectly into one default sized cacheline to reduce false sharing and be more efficient.</remarks>
+/// <remarks>Size is exactly 64 bytes to fit perfectly into one default sized cacheline to reduce false sharing and be more efficient.</remarks>
 /// </summary>
-///
 [StructLayout(LayoutKind.Sequential, Size = 64)]
 public class JobHandle
 {
@@ -24,19 +23,28 @@ public class JobHandle
     private long _padding3;
     private int _padding4;
 
+    /// <summary>
+    /// Creates a new <see cref="JobHandle"/>.
+    /// </summary>
+    /// <param name="job">The job.</param>
     public JobHandle(IJob job)
     {
         _job = job;
         _parent = null;
         _unfinishedJobs = 1;
-        _dependencies = new List<JobHandle>();
+        _dependencies = [];
     }
 
+    /// <summary>
+    /// Creates a new <see cref="JobHandle"/>.
+    /// </summary>
+    /// <param name="job">The job.</param>
+    /// <param name="parent">Its parent.</param>
     public JobHandle(IJob job, JobHandle parent)
     {
         _job = job;
         _parent = parent;
         _unfinishedJobs = 1;
-        _dependencies = new List<JobHandle>();
+        _dependencies = [];
     }
 }

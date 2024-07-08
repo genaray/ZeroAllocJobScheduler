@@ -2,9 +2,12 @@
 
 namespace Schedulers;
 
+/// <summary>
+/// Represents a thread which has a <see cref="WorkStealingDeque{T}"/> and processes <see cref="JobHandle"/>s.
+/// Steals <see cref="JobHandle"/>s from other workers if it has nothing more to do.
+/// </summary>
 internal class Worker
 {
-
     private readonly int _workerId;
     private readonly Thread _thread;
     private readonly WorkStealingDeque<JobHandle> _queue;
@@ -12,6 +15,11 @@ internal class Worker
     private readonly JobScheduler _jobScheduler;
     private volatile CancellationTokenSource _cancellationToken;
 
+    /// <summary>
+    /// Creates a new <see cref="Worker"/>.
+    /// </summary>
+    /// <param name="jobScheduler">Its <see cref="JobScheduler"/>.</param>
+    /// <param name="id">Its <see cref="id"/>.</param>
     public Worker(JobScheduler jobScheduler, int id)
     {
         _workerId = id;
@@ -23,21 +31,35 @@ internal class Worker
         _thread = new Thread(() => Run(_cancellationToken.Token));
     }
 
+    /// <summary>
+    /// Its <see cref="WorkStealingDeque{T}"/> with <see cref="JobHandle"/>s to process.
+    /// </summary>
     public WorkStealingDeque<JobHandle> Queue
     {
         get => _queue;
     }
 
+    /// <summary>
+    /// Starts this instance.
+    /// </summary>
     public void Start()
     {
         _thread.Start();
     }
 
+    /// <summary>
+    /// Stops this instance.
+    /// </summary>
     public void Stop()
     {
         _cancellationToken.Cancel();
     }
 
+    /// <summary>
+    /// Runs this instance to process its <see cref="JobHandle"/>s.
+    /// Steals from other <see cref="Worker"/>s if its own <see cref="_queue"/> is empty.
+    /// </summary>
+    /// <param name="token"></param>
     private void Run(CancellationToken token)
     {
         try
@@ -61,7 +83,6 @@ internal class Worker
                             continue;
                         }
 
-                        //Console.WriteLine($"Test: {_jobScheduler} and {_jobScheduler.Queues} and {job}");
                         exists = _jobScheduler.Queues[i].TrySteal(out job);
                         if (!exists)
                         {
