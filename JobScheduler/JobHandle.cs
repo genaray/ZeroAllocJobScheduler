@@ -20,8 +20,8 @@ public class JobHandle
 
     private long _padding1;
     private long _padding2;
-    private long _padding3;
-    private int _padding4;
+    private short _padding3;
+    private short _padding4;
 
     /// <summary>
     /// Creates a new <see cref="JobHandle"/>.

@@ -14,12 +14,11 @@
 
         <PackageId>ZeroAllocJobScheduler</PackageId>
         <Title>ZeroAllocJobScheduler</Title>
-        <Version>1.1.2</Version>
+        <Version>1.2.0</Version>
         <Authors>genaray</Authors>
         <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
         <Description>A high performance alloc free Job/Task Scheduler.</Description>
-        <PackageReleaseNotes>Added dependencies.
-Several improvements and bug fixes. </PackageReleaseNotes>
+        <PackageReleaseNotes>Huge refactoring for improved performance and a smaller codebase. </PackageReleaseNotes>
         <PackageTags>c#;.net;.net6;.net7;gamedev; game-development; game-engine; jobs; tasks;</PackageTags>
 
         <PackageProjectUrl>https://github.com/genaray/ZeroAllocJobScheduler</PackageProjectUrl>
