@@ -163,6 +163,11 @@ internal class WorkStealingDeque<T>
         item = default!;
 
         var b = Volatile.Read(ref _bottom);
+        if (b == 0)
+        {
+            return false;
+        }
+
         var a = _activeArray;
 
         // we're popping, so decrement the bottom in advance.
