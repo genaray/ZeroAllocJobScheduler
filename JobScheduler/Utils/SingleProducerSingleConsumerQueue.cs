@@ -60,7 +60,7 @@ internal class SingleProducerSingleConsumerQueue<T>
             if (Interlocked.CompareExchange(ref _top, top + 1, top) == top)
             {
                 result = _buffer[top];
-                _buffer[top] = default;
+                //_buffer[top] = default;
                 return true;
             }
 
