@@ -13,7 +13,7 @@ public static class JobSchedulerExtensions
         {
             // Round Robin distribution
             var workerIndex = jobScheduler.NextWorkerIndex;
-            jobScheduler.Workers[workerIndex].Queue.PushBottom(job);
+            jobScheduler.Workers[workerIndex].IncomingQueue.TryEnqueue(job);
             jobScheduler.NextWorkerIndex = (jobScheduler.NextWorkerIndex + 1) % jobScheduler.Workers.Count;
         }
     }

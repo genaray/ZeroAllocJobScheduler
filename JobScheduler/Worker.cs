@@ -10,6 +10,8 @@ internal class Worker
 {
     private readonly int _workerId;
     private readonly Thread _thread;
+
+    private readonly SingleProducerSingleConsumerQueue<JobHandle> _incomingQueue;
     private readonly WorkStealingDeque<JobHandle> _queue;
 
     private readonly JobScheduler _jobScheduler;
@@ -23,12 +25,22 @@ internal class Worker
     public Worker(JobScheduler jobScheduler, int id)
     {
         _workerId = id;
+
+        _incomingQueue = new SingleProducerSingleConsumerQueue<JobHandle>(32);
         _queue = new WorkStealingDeque<JobHandle>(32);
 
         _jobScheduler = jobScheduler;
         _cancellationToken = new CancellationTokenSource();
 
         _thread = new Thread(() => Run(_cancellationToken.Token));
+    }
+
+    /// <summary>
+    /// Its <see cref="SingleProducerSingleConsumerQueue{T}"/> with <see cref="JobHandle"/>s which are transferred into the <see cref="Queue"/>.
+    /// </summary>
+    public SingleProducerSingleConsumerQueue<JobHandle> IncomingQueue
+    {
+        get => _incomingQueue;
     }
 
     /// <summary>
@@ -66,6 +78,12 @@ internal class Worker
         {
             while (!token.IsCancellationRequested)
             {
+                // Pass jobs to the local queue
+                while (_incomingQueue.TryDequeue(out var incomingJob))
+                {
+                    _queue.PushBottom(incomingJob);
+                }
+
                 // Process job in own queue
                 var exists = _queue.TryPopBottom(out var job);
                 if (exists)
@@ -104,11 +122,11 @@ internal class Worker
         }
         catch (OperationCanceledException)
         {
-            Console.WriteLine("Operation was canceled");
+            //Console.WriteLine("Operation was canceled");
         }
         finally
         {
-            Console.WriteLine("Worker thread is cleaning up and exiting");
+            //Console.WriteLine("Worker thread is cleaning up and exiting");
         }
     }
 }
