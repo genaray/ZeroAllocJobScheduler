@@ -8,21 +8,14 @@ namespace Schedulers;
 /// is used to control and await a scheduled <see cref="IJob"/>.
 /// <remarks>Size is exactly 64 bytes to fit perfectly into one default sized cacheline to reduce false sharing and be more efficient.</remarks>
 /// </summary>
-[StructLayout(LayoutKind.Sequential, Size = 64)]
 public class JobHandle
 {
-    internal readonly IJob _job;
-
-    internal readonly JobHandle _parent;
+    internal IJob _job;
+    internal JobHandle? _parent;
+    private List<JobHandle>? _dependencies;
     internal int _unfinishedJobs;
-
-    internal readonly List<JobHandle> _dependencies;
-
-    private long _padding1;
-    private long _padding2;
-    private short _padding3;
-    private short _padding4;
-
+    internal int index = -1;//-1 for non pooled and 0 or higher for pooled
+    public int generation = 0;
     /// <summary>
     /// Creates a new <see cref="JobHandle"/>.
     /// </summary>
@@ -32,7 +25,30 @@ public class JobHandle
         _job = job;
         _parent = null;
         _unfinishedJobs = 1;
-        _dependencies = [];
+        _dependencies = null;
+    }
+
+    public JobHandle(int index)
+    {
+        this.index = index;
+    }
+
+    public void ReinitializeWithJob(IJob job)
+    {
+        _job = job;
+        _parent = null;
+        _unfinishedJobs = 1;
+        _dependencies = null;
+    }
+
+    public bool HasDependencies()
+    {
+        return _dependencies is { Count: > 0 };
+    }
+
+    public List<JobHandle> GetDependencies()
+    {
+        return _dependencies ??= [];
     }
 
     /// <summary>
@@ -45,6 +61,6 @@ public class JobHandle
         _job = job;
         _parent = parent;
         _unfinishedJobs = 1;
-        _dependencies = [];
+        _dependencies = null;
     }
 }

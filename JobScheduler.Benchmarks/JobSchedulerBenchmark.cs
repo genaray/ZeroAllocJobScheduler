@@ -1,4 +1,5 @@
-﻿using CommunityToolkit.HighPerformance;
+﻿using Arch.Benchmarks;
+using CommunityToolkit.HighPerformance;
 using Schedulers.Utils;
 
 namespace Schedulers.Benchmarks;
@@ -8,6 +9,7 @@ public class CalculationJob : IJob
     private readonly int _first;
     private readonly int _second;
     public static volatile int Result;
+    public static int a;
 
     public CalculationJob(int first, int second)
     {
@@ -18,6 +20,7 @@ public class CalculationJob : IJob
     public void Execute()
     {
         Result = _first + _second;
+        Interlocked.Increment(ref a);
     }
 }
 
@@ -29,7 +32,7 @@ public class JobSchedulerBenchmark
 
     private static volatile int result = 0;
 
-    [Params(1, 32, 64, 128, 256, 512)] public int Jobs;
+    [Params(20000, 1000, 50, 10)] public int Jobs;
 
     [IterationSetup]
     public void Setup()
@@ -50,7 +53,7 @@ public class JobSchedulerBenchmark
     {
         for (var index = 0; index < Jobs; index++)
         {
-            var job = new CalculationJob(index, index);
+            var job = new HeavyCalculationJob(index, index);
             var handle = _jobScheduler.Schedule(job);
             _jobHandles.Add(handle);
         }
@@ -64,8 +67,20 @@ public class JobSchedulerBenchmark
     {
         Parallel.For(0, Jobs, i =>
         {
-            var job = new CalculationJob(i, i);
+            var job = new HeavyCalculationJob(i, i);
             job.Execute();
         });
+    }
+
+    [Benchmark]
+    public void BenchmarkJobSchedulerNoAlloc()
+    {
+        var generation = _jobScheduler.GetNewGeneration();
+        for (var index = 0; index < Jobs; index++)
+        {
+            var job = new HeavyCalculationJob(index, index);
+            _jobScheduler.ScheduleAndFlushPooledJobWithGeneration(job, generation);
+        }
+        _jobScheduler.AwaitForGeneration(generation);
     }
 }

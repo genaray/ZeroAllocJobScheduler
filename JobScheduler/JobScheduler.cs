@@ -13,7 +13,6 @@ namespace Schedulers;
 /// </summary>
 public partial class JobScheduler : IDisposable
 {
-
     /// <summary>
     /// Creates an instance and singleton.
     /// </summary>
@@ -31,6 +30,10 @@ public partial class JobScheduler : IDisposable
             var worker = new Worker(this, index);
             Workers.Add(worker);
             Queues.Add(worker.Queue);
+        }
+
+        foreach (var worker in Workers)
+        {
             worker.Start();
         }
     }
@@ -45,6 +48,8 @@ public partial class JobScheduler : IDisposable
     /// </summary>
     internal List<Worker> Workers { get; } = new();
 
+    internal JobHandlePool JobHandlePool { get; } = new(20000);
+
     /// <summary>
     /// An index pointing towards the next worker being used to process the next flushed <see cref="IJob"/>.
     /// </summary>
@@ -54,14 +59,83 @@ public partial class JobScheduler : IDisposable
     /// Creates a new <see cref="JobHandle"/> from a <see cref="IJob"/>.
     /// </summary>
     /// <param name="iJob">The <see cref="IJob"/>.</param>
+    /// <param name="pooled">Whether the handle should be pooled or not</param>
     /// <returns>The new created <see cref="JobHandle"/>.</returns>
-    public JobHandle Schedule(IJob iJob)
+    public JobHandle Schedule(IJob iJob, bool pooled = true)
     {
-        var job = new JobHandle(
-            iJob
-        );
+        if (!pooled)
+        {
+            return new(iJob);
+        }
 
-        return job;
+        if (!JobHandlePool.GetHandle(out var handle))
+        {
+            return new(iJob);
+        }
+
+        handle!.ReinitializeWithJob(iJob);
+        return handle;
+    }
+
+    public JobHandle? ScheduleAndFlushPooledJobWithGeneration(IJob iJob, int generation)
+    {
+        var hasJob = JobHandlePool.GetHandle(out var handle);
+        if(!hasJob)
+        {
+            return null;
+        }
+        handle.ReinitializeWithJob(iJob);
+        handle!.generation = generation;
+        FlushOrAwaitGeneration(handle!);
+        return handle;
+    }
+
+    public int GetNewGeneration()
+    {
+        return Interlocked.Increment(ref JobHandlePool.Generation);
+    }
+
+    public bool CheckIfAllPooledJobsInGenerationAreComplete(int generation)
+    {
+        foreach (var job in JobHandlePool._handles)
+        {
+            if (job.generation == generation && job._unfinishedJobs > 0)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+
+    public void TryToExecuteRemainingJobs(int max = 0)
+    {
+        var totalExecuted = 0;
+        for (var i = 0; i < Workers.Count; i++)
+        {
+            var nextJob = Workers[i].Queue.TrySteal(out var stolenJob);
+            if (!nextJob)
+            {
+                continue;
+            }
+
+            stolenJob._job.Execute();
+            Finish(stolenJob);
+            totalExecuted++;
+            if (max > 0 && totalExecuted >= max)
+            {
+                return;
+            }
+        }
+    }
+    public void AwaitForGeneration(int generation)
+    {
+        while (!CheckIfAllPooledJobsInGenerationAreComplete(generation))
+        {
+            // Steal jobs and process them on the main.
+            TryToExecuteRemainingJobs();
+        }
     }
 
     /// <summary>
@@ -92,8 +166,9 @@ public partial class JobScheduler : IDisposable
     /// <param name="dependOn">The <see cref="JobHandle"/> it depends on.</param>
     public void AddDependency(JobHandle dependency, JobHandle dependOn)
     {
-        dependOn._dependencies.Add(dependency);
+        dependOn.GetDependencies().Add(dependency);
     }
+
 
     /// <summary>
     /// Transfers a <see cref="JobHandle"/> to the <see cref="Workers"/> so that it can be executed.
@@ -103,7 +178,23 @@ public partial class JobScheduler : IDisposable
     {
         // Round Robin,
         var workerIndex = NextWorkerIndex;
-        Workers[workerIndex].IncomingQueue.TryEnqueue(job);
+        while (!Workers[workerIndex].IncomingQueue.TryEnqueue(job))
+        {
+            NextWorkerIndex = (NextWorkerIndex + 1) % Workers.Count;
+        }
+
+        NextWorkerIndex = (NextWorkerIndex + 1) % Workers.Count;
+    }
+
+    public void FlushOrAwaitGeneration(JobHandle job)
+    {
+        // Round Robin,
+        var workerIndex = NextWorkerIndex;
+        while (!Workers[workerIndex].IncomingQueue.TryEnqueue(job))
+        {
+            NextWorkerIndex = (NextWorkerIndex + 1) % Workers.Count;
+        }
+
         NextWorkerIndex = (NextWorkerIndex + 1) % Workers.Count;
     }
 
@@ -148,13 +239,17 @@ public partial class JobScheduler : IDisposable
             Finish(job._parent);
         }
 
-        for (var index = 0; index < job._dependencies.Count; index++)
+        if (job.HasDependencies())
         {
-            var nextJob = job._dependencies[index];
-            Flush(nextJob);
+            for (var index = 0; index < job.GetDependencies().Count; index++)
+            {
+                var nextJob = job.GetDependencies()[index];
+                Flush(nextJob);
+            }
         }
 
         Interlocked.Decrement(ref job._unfinishedJobs);
+        JobHandlePool.ReturnHandle(job);
     }
 
     /// <summary>

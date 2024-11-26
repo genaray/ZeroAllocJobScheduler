@@ -11,7 +11,7 @@ internal class Worker
     private readonly int _workerId;
     private readonly Thread _thread;
 
-    private readonly SingleProducerSingleConsumerQueue<JobHandle> _incomingQueue;
+    private readonly UnorderedThreadSafeQueue<JobHandle> _incomingQueue;
     private readonly WorkStealingDeque<JobHandle> _queue;
 
     private readonly JobScheduler _jobScheduler;
@@ -26,7 +26,7 @@ internal class Worker
     {
         _workerId = id;
 
-        _incomingQueue = new SingleProducerSingleConsumerQueue<JobHandle>(32);
+        _incomingQueue = new UnorderedThreadSafeQueue<JobHandle>();
         _queue = new WorkStealingDeque<JobHandle>(32);
 
         _jobScheduler = jobScheduler;
@@ -38,7 +38,7 @@ internal class Worker
     /// <summary>
     /// Its <see cref="SingleProducerSingleConsumerQueue{T}"/> with <see cref="JobHandle"/>s which are transferred into the <see cref="Queue"/>.
     /// </summary>
-    public SingleProducerSingleConsumerQueue<JobHandle> IncomingQueue
+    public UnorderedThreadSafeQueue<JobHandle> IncomingQueue
     {
         get => _incomingQueue;
     }
@@ -79,9 +79,10 @@ internal class Worker
             while (!token.IsCancellationRequested)
             {
                 // Pass jobs to the local queue
-                while (_incomingQueue.TryDequeue(out var incomingJob))
+                while (_queue.Size() < 16 && _incomingQueue.TryDequeue(out var jobHandle))
                 {
-                    _queue.PushBottom(incomingJob);
+                    if (jobHandle == null) throw new InvalidOperationException("JobHandle is null");
+                    _queue.PushBottom(jobHandle);
                 }
 
                 // Process job in own queue
@@ -100,7 +101,6 @@ internal class Worker
                         {
                             continue;
                         }
-
                         exists = _jobScheduler.Queues[i].TrySteal(out job);
                         if (!exists)
                         {

@@ -11,10 +11,7 @@ public static class JobSchedulerExtensions
     {
         foreach (ref var job in jobs)
         {
-            // Round Robin distribution
-            var workerIndex = jobScheduler.NextWorkerIndex;
-            jobScheduler.Workers[workerIndex].IncomingQueue.TryEnqueue(job);
-            jobScheduler.NextWorkerIndex = (jobScheduler.NextWorkerIndex + 1) % jobScheduler.Workers.Count;
+            jobScheduler.Flush(job);
         }
     }
 
