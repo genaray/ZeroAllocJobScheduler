@@ -251,4 +251,9 @@ internal class WorkStealingDeque<T>
         item = stolen;
         return true;
     }
+
+    public int Size()
+    {
+        return (int)(Volatile.Read(ref _bottom) - Interlocked.Read(ref _top));
+    }
 }

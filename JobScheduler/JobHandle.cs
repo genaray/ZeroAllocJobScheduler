@@ -1,50 +1,98 @@
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
+using System.Collections.Concurrent;
+using Schedulers.Utils;
 
 namespace Schedulers;
+
+public class EmptyJob : IJob
+{
+    public void Execute()
+    {
+    }
+}
+
+public class JobHandleSoaPool
+{
+    public JobHandleSoaPool()
+    {
+        const ushort MaxCount = ushort.MaxValue;
+        _freeIds = new(MaxCount);
+        Parent = new ushort[MaxCount];
+        Dependencies = new List<JobHandle>?[MaxCount];
+        UnfinishedJobs = new int[MaxCount];
+        Jobs = new IJob[MaxCount];
+    }
+
+    public ushort[] Parent;
+    public List<JobHandle>?[] Dependencies;
+    public int[] UnfinishedJobs;
+    public IJob[] Jobs;
+    private readonly JobHandlePool _freeIds;
+
+    public JobHandle GetNewHandle(IJob iJob)
+    {
+        if (iJob == null) throw new("Job cannot be null");
+        _freeIds.GetHandle(out var index);
+        if (index == null) throw new InvalidOperationException("No more handles available");
+        return new()
+        {
+            Index = index.Value,
+            Job = iJob,
+            Parent = ushort.MaxValue,
+            UnfinishedJobs = 1,
+            Dependencies = null,
+        };
+    }
+
+    public void ReleaseHandle(JobHandle handle)
+    {
+        _freeIds.ReturnHandle(handle);
+    }
+
+    public void DecrementUnfinished(ushort jobMainDependency)
+    {
+        var res = Interlocked.Decrement(ref UnfinishedJobs[jobMainDependency]);
+        if (res < 0)
+        {
+            throw new InvalidOperationException("Unfinished jobs cannot be negative");
+        }
+    }
+}
 
 /// <summary>
 /// The <see cref="JobHandle"/> struct
 /// is used to control and await a scheduled <see cref="IJob"/>.
 /// <remarks>Size is exactly 64 bytes to fit perfectly into one default sized cacheline to reduce false sharing and be more efficient.</remarks>
 /// </summary>
-[StructLayout(LayoutKind.Sequential, Size = 64)]
-public class JobHandle
+public struct JobHandle
 {
-    internal readonly IJob _job;
+    public static JobHandleSoaPool Pool = new();
+    public ushort Index;
+    public ref IJob Job => ref Pool.Jobs[Index];
 
-    internal readonly JobHandle _parent;
-    internal int _unfinishedJobs;
+    public ref ushort Parent => ref Pool.Parent[Index];
 
-    internal readonly List<JobHandle> _dependencies;
+    //In case we depend on multiple jobs
+    public ref List<JobHandle>? Dependencies => ref Pool.Dependencies[Index];
+    public ref int UnfinishedJobs => ref Pool.UnfinishedJobs[Index];
 
-    private long _padding1;
-    private long _padding2;
-    private short _padding3;
-    private short _padding4;
-
-    /// <summary>
-    /// Creates a new <see cref="JobHandle"/>.
-    /// </summary>
-    /// <param name="job">The job.</param>
-    public JobHandle(IJob job)
+    public void SetDependsOn(JobHandle toDependOn)
     {
-        _job = job;
-        _parent = null;
-        _unfinishedJobs = 1;
-        _dependencies = [];
+        Interlocked.Increment(ref toDependOn.UnfinishedJobs);
+        Parent = toDependOn.Index;
     }
 
-    /// <summary>
-    /// Creates a new <see cref="JobHandle"/>.
-    /// </summary>
-    /// <param name="job">The job.</param>
-    /// <param name="parent">Its parent.</param>
-    public JobHandle(IJob job, JobHandle parent)
+    public bool HasDependencies()
     {
-        _job = job;
-        _parent = parent;
-        _unfinishedJobs = 1;
-        _dependencies = [];
+        return Dependencies is { Count: > 0 };
+    }
+
+    public List<JobHandle> GetDependencies()
+    {
+        return Dependencies ??= [];
+    }
+
+    public JobHandle(ushort id)
+    {
+        Index = id;
     }
 }

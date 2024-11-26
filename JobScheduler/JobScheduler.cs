@@ -13,7 +13,6 @@ namespace Schedulers;
 /// </summary>
 public partial class JobScheduler : IDisposable
 {
-
     /// <summary>
     /// Creates an instance and singleton.
     /// </summary>
@@ -31,6 +30,10 @@ public partial class JobScheduler : IDisposable
             var worker = new Worker(this, index);
             Workers.Add(worker);
             Queues.Add(worker.Queue);
+        }
+
+        foreach (var worker in Workers)
+        {
             worker.Start();
         }
     }
@@ -54,14 +57,32 @@ public partial class JobScheduler : IDisposable
     /// Creates a new <see cref="JobHandle"/> from a <see cref="IJob"/>.
     /// </summary>
     /// <param name="iJob">The <see cref="IJob"/>.</param>
+    /// <param name="pooled">Whether the handle should be pooled or not</param>
     /// <returns>The new created <see cref="JobHandle"/>.</returns>
     public JobHandle Schedule(IJob iJob)
     {
-        var job = new JobHandle(
-            iJob
-        );
+        return JobHandle.Pool.GetNewHandle(iJob);
+    }
 
-        return job;
+    public void TryToExecuteRemainingJobs(int max = 0)
+    {
+        var totalExecuted = 0;
+        for (var i = 0; i < Workers.Count; i++)
+        {
+            var nextJob = Workers[i].Queue.TrySteal(out var stolenJob);
+            if (!nextJob)
+            {
+                continue;
+            }
+
+            stolenJob.Job.Execute();
+            Finish(stolenJob);
+            totalExecuted++;
+            if (max > 0 && totalExecuted >= max)
+            {
+                return;
+            }
+        }
     }
 
     /// <summary>
@@ -73,13 +94,9 @@ public partial class JobScheduler : IDisposable
     /// <returns>The new <see cref="JobHandle"/>.</returns>
     public JobHandle Schedule(IJob iJob, JobHandle parent)
     {
-        Interlocked.Increment(ref parent._unfinishedJobs);
-
-        var job = new JobHandle(
-            iJob,
-            parent
-        );
-
+        Interlocked.Increment(ref parent.UnfinishedJobs);
+        var job = JobHandle.Pool.GetNewHandle(iJob);
+        job.Parent = parent.Index;
         return job;
     }
 
@@ -92,8 +109,9 @@ public partial class JobScheduler : IDisposable
     /// <param name="dependOn">The <see cref="JobHandle"/> it depends on.</param>
     public void AddDependency(JobHandle dependency, JobHandle dependOn)
     {
-        dependOn._dependencies.Add(dependency);
+        dependOn.GetDependencies().Add(dependency);
     }
+
 
     /// <summary>
     /// Transfers a <see cref="JobHandle"/> to the <see cref="Workers"/> so that it can be executed.
@@ -103,7 +121,11 @@ public partial class JobScheduler : IDisposable
     {
         // Round Robin,
         var workerIndex = NextWorkerIndex;
-        Workers[workerIndex].IncomingQueue.TryEnqueue(job);
+        while (!Workers[workerIndex].IncomingQueue.TryEnqueue(job))
+        {
+            NextWorkerIndex = (NextWorkerIndex + 1) % Workers.Count;
+        }
+
         NextWorkerIndex = (NextWorkerIndex + 1) % Workers.Count;
     }
 
@@ -114,8 +136,11 @@ public partial class JobScheduler : IDisposable
     /// <param name="job">The <see cref="JobHandle"/>.</param>
     public void Wait(JobHandle job)
     {
-        while (job._unfinishedJobs > 0)
+        while (job.UnfinishedJobs > 0)
         {
+            // Console.WriteLine($"Waiting for {job.Index} remaining {job.UnfinishedJobs}");
+            // Thread.Sleep(10);
+            continue;
             for (var i = 0; i < Workers.Count; i++)
             {
                 var nextJob = Workers[i].Queue.TrySteal(out var stolenJob);
@@ -124,7 +149,7 @@ public partial class JobScheduler : IDisposable
                     continue;
                 }
 
-                stolenJob._job.Execute();
+                stolenJob.Job.Execute();
                 Finish(stolenJob);
             }
         }
@@ -137,24 +162,29 @@ public partial class JobScheduler : IDisposable
     /// <param name="job"></param>
     internal void Finish(JobHandle job)
     {
-        var unfinishedJobs = Interlocked.Decrement(ref job._unfinishedJobs);
+        var unfinishedJobs = Interlocked.Decrement(ref job.UnfinishedJobs);
         if (unfinishedJobs != 0)
         {
             return;
         }
 
-        if (job._parent != null)
+        if (job.Parent != ushort.MaxValue)
         {
-            Finish(job._parent);
+            Finish(new(job.Parent));
+            // Console.WriteLine($"Finishing parent {job.Parent} remaining {new JobHandle(job.Parent).UnfinishedJobs}");
         }
 
-        for (var index = 0; index < job._dependencies.Count; index++)
+        if (job.HasDependencies())
         {
-            var nextJob = job._dependencies[index];
-            Flush(nextJob);
+            for (var index = 0; index < job.GetDependencies().Count; index++)
+            {
+                var nextJob = job.GetDependencies()[index];
+                Flush(nextJob);
+            }
         }
 
-        Interlocked.Decrement(ref job._unfinishedJobs);
+        if(job.UnfinishedJobs <0) throw new InvalidOperationException("Unfinished jobs cannot be negative");
+        JobHandle.Pool.ReleaseHandle(job);
     }
 
     /// <summary>

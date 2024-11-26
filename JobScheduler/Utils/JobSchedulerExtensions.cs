@@ -11,10 +11,7 @@ public static class JobSchedulerExtensions
     {
         foreach (ref var job in jobs)
         {
-            // Round Robin distribution
-            var workerIndex = jobScheduler.NextWorkerIndex;
-            jobScheduler.Workers[workerIndex].IncomingQueue.TryEnqueue(job);
-            jobScheduler.NextWorkerIndex = (jobScheduler.NextWorkerIndex + 1) % jobScheduler.Workers.Count;
+            jobScheduler.Flush(job);
         }
     }
 
@@ -25,37 +22,7 @@ public static class JobSchedulerExtensions
     /// <param name="jobs">An array of <see cref="JobHandle"/>s to wait for.</param>
     public static void Wait(this JobScheduler jobScheduler, params JobHandle[] jobs)
     {
-        while (true)
-        {
-            // Check if jobs are finished
-            var allJobsFinished = true;
-            for (var i = 0; i < jobs.Length; i++)
-            {
-                if (jobs[i]._unfinishedJobs > 0)
-                {
-                    allJobsFinished = false;
-                    break;
-                }
-            }
-
-            if (allJobsFinished)
-            {
-                break;
-            }
-
-            // Steal jobs and process them on the main.
-            for (var i = 0; i < jobScheduler.Workers.Count; i++)
-            {
-                var nextJob = jobScheduler.Workers[i].Queue.TrySteal(out var stolenJob);
-                if (!nextJob)
-                {
-                    continue;
-                }
-
-                stolenJob._job.Execute();
-                jobScheduler.Finish(stolenJob);
-            }
-        }
+        jobScheduler.Wait(jobs.AsSpan());
     }
 
     /// <summary>
@@ -71,7 +38,7 @@ public static class JobSchedulerExtensions
             var allJobsFinished = true;
             for (var i = 0; i < jobs.Length; i++)
             {
-                if (jobs[i]._unfinishedJobs > 0)
+                if (jobs[i].UnfinishedJobs > 0)
                 {
                     allJobsFinished = false;
                     break;
@@ -92,7 +59,7 @@ public static class JobSchedulerExtensions
                     continue;
                 }
 
-                stolenJob._job.Execute();
+                stolenJob.Job.Execute();
                 jobScheduler.Finish(stolenJob);
             }
         }

@@ -1,23 +1,24 @@
-﻿using CommunityToolkit.HighPerformance;
+﻿using Arch.Benchmarks;
+using CommunityToolkit.HighPerformance;
 using Schedulers.Utils;
 
 namespace Schedulers.Benchmarks;
 
-public class CalculationJob : IJob
+public struct CalculationJob : IJob
 {
-    private readonly int _first;
-    private readonly int _second;
-    public static volatile int Result;
-
+    private int _first;
+    private int _second;
+    public static int _result;
     public CalculationJob(int first, int second)
     {
-        this._first = first;
-        this._second = second;
+        _first = first;
+        _second = second;
     }
 
     public void Execute()
     {
-        Result = _first + _second;
+        // _first += _second;
+        // Interlocked.Increment(ref _result);
     }
 }
 
@@ -29,7 +30,7 @@ public class JobSchedulerBenchmark
 
     private static volatile int result = 0;
 
-    [Params(1, 32, 64, 128, 256, 512)] public int Jobs;
+    [Params(20000, 1000, 50, 10)] public int Jobs;
 
     [IterationSetup]
     public void Setup()
