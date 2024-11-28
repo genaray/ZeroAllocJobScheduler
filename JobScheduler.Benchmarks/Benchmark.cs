@@ -111,16 +111,16 @@ public class Benchmark
 
     private static void Main(string[] args)
     {
-        var config = DefaultConfig.Instance.AddJob(Job.Default
-            .WithWarmupCount(2)
-            .WithMinIterationCount(10)
-            .WithIterationCount(20)
-            .WithMaxIterationCount(30)
-            // .WithAffinity(65535)//To not freeze my pc
-        );
-        config = config.WithOptions(ConfigOptions.DisableOptimizationsValidator);
-        BenchmarkRunner.Run<JobSchedulerBenchmark>(config);
-        return;
+        // var config = DefaultConfig.Instance.AddJob(Job.Default
+        //     .WithWarmupCount(2)
+        //     .WithMinIterationCount(10)
+        //     .WithIterationCount(20)
+        //     .WithMaxIterationCount(30)
+        //     // .WithAffinity(65535)//To not freeze my pc
+        // );
+        // config = config.WithOptions(ConfigOptions.DisableOptimizationsValidator);
+        // BenchmarkRunner.Run<JobSchedulerBenchmark>(config);
+        // return;
         // var jb = new JobSchedulerBenchmark();
         // jb.Setup();
         // jb.Jobs = 512;
@@ -130,8 +130,8 @@ public class Benchmark
         for (int i = 0; i < 10; i++)
         {
             BenchB();
-            BenchC();
-            BenchD();
+            // BenchC();
+            // BenchD();
         }
         //using var jobScheduler = new JobScheduler();
 
