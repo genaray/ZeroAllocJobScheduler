@@ -12,18 +12,13 @@ public class Benchmark
 {
     private static void Main(string[] args)
     {
-        var config = DefaultConfig.Instance.AddJob(Job.Default
-                .WithWarmupCount(2)    // Anzahl der Warmup-Runden
-                .WithIterationCount(10) // Iterationen pro Benchmark
-                .WithMaxIterationCount(50) // Max. Iterationen
-        );
-
+        /*
         for (var sindex = 0; sindex < 1_000; sindex++)
         {
             var jobScheduler = new JobScheduler();
             var handles = new List<JobHandle>(100);
 
-            for (var index = 0; index < 18; index++)
+            for (var index = 0; index < 40; index++)
             {
                 var job = new CalculationJob(index, index);
                 var handle = jobScheduler.Schedule(job);
@@ -35,25 +30,24 @@ public class Benchmark
             jobScheduler.Wait(handles.AsSpan());
             Console.WriteLine($"{sindex} done");
             jobScheduler.Dispose();
-        }
+        }*/
 
         //using var jobScheduler = new JobScheduler();
 
-        // Spawn massive jobs and wait for finish
-        /*
-        for (var index = 0; index < 1000; index++)
-        {
-            var indexCopy = index;
-            var job = new TestJob(index, () => { Console.WriteLine($"FINISHED {indexCopy}"); });
+        //Spawn massive jobs and wait for finish
+        // for (var index = 0; index < 1000; index++)
+        // {
+        //     var indexCopy = index;
+        //     var job = new TestJob(index, () => { Console.WriteLine($"FINISHED {indexCopy}"); });
+        //
+        //     var handle1 = jobScheduler.Schedule(job);
+        //     jobScheduler.Flush(handle1);
+        // }
+        //
+        // Thread.Sleep(10_000);
 
-            var handle1 = jobScheduler.Schedule(job);
-            jobScheduler.Flush(handle1);
-        }
 
-        Thread.Sleep(10_000);*/
-
-        /*
-        var handles = new JobHandle[180];
+        /*var handles = new JobHandle[180];
         for (var index = 0; index < 180; index++)
         {
             var indexCopy = index;
@@ -104,6 +98,6 @@ public class Benchmark
         Console.WriteLine("Finished");*/
 
         // Use: dotnet run -c Release --framework net7.0 -- --job short --filter *BenchmarkClass1*
-        //BenchmarkSwitcher.FromAssembly(typeof(Benchmark).Assembly).Run(args, config);
+        BenchmarkSwitcher.FromAssembly(typeof(Benchmark).Assembly).Run(args);
     }
 }

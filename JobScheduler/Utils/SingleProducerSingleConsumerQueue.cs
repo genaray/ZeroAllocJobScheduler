@@ -1,80 +1,31 @@
-﻿namespace Schedulers.Utils;
+﻿using System.Collections.Concurrent;
+
+namespace Schedulers.Utils;
 internal class SingleProducerSingleConsumerQueue<T>
 {
-    private volatile CircularArray<T> _buffer;
-    private long _bottom;
-    private long _top;
+    private readonly ConcurrentQueue<T> _queue = new();
 
-    public SingleProducerSingleConsumerQueue(int initialLogSize = 10)
+    public SingleProducerSingleConsumerQueue(int capacity)
     {
-        _buffer = new CircularArray<T>(initialLogSize);
-        _bottom = 0;
-        _top = 0;
-    }
-
-    public bool TryEnqueue(T item)
-    {
-        while (true)
+        for (var i = 0; i < capacity; i++)
         {
-            var bottom = Interlocked.Read(ref _bottom);
-            var top = Interlocked.Read(ref _top);
-            var size = bottom - top;
+            _queue.Enqueue(default!);
+        }
 
-            // Prüfe Buffer-Kapazität
-            if (size >= _buffer.Capacity)
-            {
-                var currentBuffer = _buffer;
-                var newBuffer = currentBuffer.EnsureCapacity(bottom, top);
-
-                if (Interlocked.CompareExchange(ref _buffer, newBuffer, currentBuffer) != currentBuffer)
-                {
-                    continue;
-                }
-            }
-
-            if (Interlocked.CompareExchange(ref _bottom, bottom + 1, bottom) == bottom)
-            {
-                _buffer[bottom] = item;
-                return true;
-            }
-
-            Thread.SpinWait(1);
+        for (var i = 0; i < capacity; i++)
+        {
+            _queue.TryDequeue(out _);
         }
     }
 
-    public bool TryDequeue(out T result)
+    internal bool TryDequeue(out T item)
     {
-        result = default;
-
-        while (true)
-        {
-            var bottom = Interlocked.Read(ref _bottom);
-            var top = Interlocked.Read(ref _top);
-
-            // Queue leer
-            if (bottom <= top)
-            {
-                return false;
-            }
-
-            if (Interlocked.CompareExchange(ref _top, top + 1, top) == top)
-            {
-                result = _buffer[top];
-                //_buffer[top] = default;
-                return true;
-            }
-
-            Thread.SpinWait(1);
-        }
+        return _queue.TryDequeue(out item);
     }
 
-    public long Count
+    internal bool TryEnqueue(T item)
     {
-        get
-        {
-            var bottom = Interlocked.Read(ref _bottom);
-            var top = Interlocked.Read(ref _top);
-            return Math.Max(0, bottom - top);
-        }
+        _queue.Enqueue(item);
+        return true;
     }
 }

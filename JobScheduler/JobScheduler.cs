@@ -31,6 +31,10 @@ public partial class JobScheduler : IDisposable
             var worker = new Worker(this, index);
             Workers.Add(worker);
             Queues.Add(worker.Queue);
+        }
+
+        foreach (var worker in Workers)
+        {
             worker.Start();
         }
     }
