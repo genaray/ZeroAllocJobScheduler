@@ -8,20 +8,14 @@ namespace Schedulers;
 /// is used to control and await a scheduled <see cref="IJob"/>.
 /// <remarks>Size is exactly 64 bytes to fit perfectly into one default sized cacheline to reduce false sharing and be more efficient.</remarks>
 /// </summary>
-[StructLayout(LayoutKind.Sequential, Size = 64)]
 public class JobHandle
 {
     internal readonly IJob _job;
 
-    internal readonly JobHandle _parent;
+    internal readonly JobHandle? _parent;
     internal int _unfinishedJobs;
 
     internal readonly List<JobHandle> _dependencies;
-
-    private long _padding1;
-    private long _padding2;
-    private short _padding3;
-    private short _padding4;
 
     /// <summary>
     /// Creates a new <see cref="JobHandle"/>.

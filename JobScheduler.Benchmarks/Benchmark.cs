@@ -12,6 +12,7 @@ public class Benchmark
 {
     private static void Main(string[] args)
     {
+
         /*
         for (var sindex = 0; sindex < 1_000; sindex++)
         {
@@ -31,6 +32,27 @@ public class Benchmark
             Console.WriteLine($"{sindex} done");
             jobScheduler.Dispose();
         }*/
+
+
+        /*var jobScheduler = new JobScheduler();
+        var handles = new List<JobHandle>(40000);
+
+        for (var index = 0; index < 40000; index++)
+        {
+            var job = new CalculationJob(index, index);
+            var handle = jobScheduler.Schedule(job);
+            handles.Add(handle);
+        }
+
+        jobScheduler.Flush(handles.AsSpan());
+        jobScheduler.Wait(handles.AsSpan());
+        jobScheduler.Dispose();*/
+
+        Parallel.For(0, 40_000, i =>
+        {
+            var job = new CalculationJob(i, i);
+            job.Execute();
+        });
 
         //using var jobScheduler = new JobScheduler();
 
@@ -98,6 +120,6 @@ public class Benchmark
         Console.WriteLine("Finished");*/
 
         // Use: dotnet run -c Release --framework net7.0 -- --job short --filter *BenchmarkClass1*
-        BenchmarkSwitcher.FromAssembly(typeof(Benchmark).Assembly).Run(args);
+        //BenchmarkSwitcher.FromAssembly(typeof(Benchmark).Assembly).Run(args);
     }
 }

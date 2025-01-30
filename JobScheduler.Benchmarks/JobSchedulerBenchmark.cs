@@ -29,7 +29,7 @@ public class JobSchedulerBenchmark
 
     private static volatile int result = 0;
 
-    [Params(1, 32, 64, 128, 256, 512)] public int Jobs;
+    [Params(20000, 1000, 50, 10)] public int Jobs;
 
     [IterationSetup]
     public void Setup()
@@ -55,8 +55,9 @@ public class JobSchedulerBenchmark
             _jobHandles.Add(handle);
         }
 
-        _jobScheduler.Flush(_jobHandles.AsSpan());
-        _jobScheduler.Wait(_jobHandles.AsSpan());
+        var span = _jobHandles.AsSpan();
+        _jobScheduler.Flush(span);
+        _jobScheduler.Wait(span);
     }
 
     [Benchmark]
