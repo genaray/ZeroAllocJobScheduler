@@ -47,15 +47,6 @@ public class JobHandleSoaPool
     {
         _freeIds.ReturnHandle(handle);
     }
-
-    public void DecrementUnfinished(ushort jobMainDependency)
-    {
-        var res = Interlocked.Decrement(ref UnfinishedJobs[jobMainDependency]);
-        if (res < 0)
-        {
-            throw new InvalidOperationException("Unfinished jobs cannot be negative");
-        }
-    }
 }
 
 /// <summary>

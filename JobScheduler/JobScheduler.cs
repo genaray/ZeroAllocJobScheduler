@@ -64,6 +64,11 @@ public partial class JobScheduler : IDisposable
         return JobHandle.Pool.GetNewHandle(iJob);
     }
 
+
+    /// <summary>
+    /// This is similar to wait but doesn't require a job handle, and allow limiting execution to a certain amount of jobs.
+    /// </summary>
+    /// <param name="max">The maximum amount of jobs that will be executed, 0 means unlimited</param>
     public void TryToExecuteRemainingJobs(int max = 0)
     {
         var totalExecuted = 0;
@@ -138,9 +143,6 @@ public partial class JobScheduler : IDisposable
     {
         while (job.UnfinishedJobs > 0)
         {
-            // Console.WriteLine($"Waiting for {job.Index} remaining {job.UnfinishedJobs}");
-            // Thread.Sleep(10);
-            continue;
             for (var i = 0; i < Workers.Count; i++)
             {
                 var nextJob = Workers[i].Queue.TrySteal(out var stolenJob);
@@ -171,7 +173,6 @@ public partial class JobScheduler : IDisposable
         if (job.Parent != ushort.MaxValue)
         {
             Finish(new(job.Parent));
-            // Console.WriteLine($"Finishing parent {job.Parent} remaining {new JobHandle(job.Parent).UnfinishedJobs}");
         }
 
         if (job.HasDependencies())
