@@ -10,6 +10,14 @@ using Schedulers.Utils;
 
 namespace Arch.Benchmarks;
 
+public struct EmptyJob : IJob
+{
+    public void Execute()
+    {
+
+    }
+}
+
 public struct VectorCalculationJob : IParallelJobProducer
 {
     public float[] a;

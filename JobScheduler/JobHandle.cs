@@ -3,16 +3,41 @@ using Schedulers.Utils;
 
 namespace Schedulers;
 
-public class EmptyJob : IJob
-{
-    public void Execute()
-    {
-    }
-}
-
+/// <summary>
+/// The <see cref="JobHandleSoaPool"/> class
+/// acts as a pool for meta-data of a <see cref="JobHandle"/> to reduce allocations.
+/// </summary>
 public class JobHandleSoaPool
 {
-    public JobHandleSoaPool()
+    /// <summary>
+    /// An array that stores the parent of each <see cref="JobHandle"/>.
+    /// </summary>
+    internal readonly ushort[] Parent;
+
+    /// <summary>
+    /// An array that stores a list of <see cref="Dependencies"/> of each <see cref="JobHandle"/>.
+    /// </summary>
+    internal readonly List<JobHandle>?[] Dependencies;
+
+    /// <summary>
+    /// An array that stores the unfished jobs of each <see cref="JobHandle"/>-
+    /// </summary>
+    internal readonly int[] UnfinishedJobs;
+
+    /// <summary>
+    /// An array that stores the <see cref="IJob"/> of each <see cref="JobHandle"/>.
+    /// </summary>
+    internal readonly IJob[] Jobs;
+
+    /// <summary>
+    /// The <see cref="JobHandlePool"/> with recycable ids.
+    /// </summary>
+    private readonly JobHandlePool _freeIds;
+
+    /// <summary>
+    /// Creates a new instance.
+    /// </summary>
+    internal JobHandleSoaPool()
     {
         const ushort MaxCount = ushort.MaxValue;
         _freeIds = new(MaxCount);
@@ -22,17 +47,28 @@ public class JobHandleSoaPool
         Jobs = new IJob[MaxCount];
     }
 
-    public ushort[] Parent;
-    public List<JobHandle>?[] Dependencies;
-    public int[] UnfinishedJobs;
-    public IJob[] Jobs;
-    private readonly JobHandlePool _freeIds;
-
-    public JobHandle GetNewHandle(IJob iJob)
+    /// <summary>
+    /// Rents a new or pooled <see cref="JobHandle"/>.
+    /// </summary>
+    /// <param name="iJob">The <see cref="IJob"/>.</param>
+    /// <returns>A new or pooled <see cref="JobHandle"/> instance.</returns>
+    /// <exception cref="Exception">Throws when <see cref="IJob"/> is null.</exception>
+    /// <exception cref="InvalidOperationException">Throws if there no more handles available.</exception>
+    internal JobHandle RentJobHandle(IJob iJob)
     {
-        if (iJob == null) throw new("Job cannot be null");
+        if (iJob == null)
+        {
+            throw new("Job cannot be null");
+        }
+
         _freeIds.GetHandle(out var index);
-        if (index == null) throw new InvalidOperationException("No more handles available");
+
+        if (index == null)
+        {
+            throw new InvalidOperationException("No more handles available");
+        }
+
+        // Create handle
         return new()
         {
             Index = index.Value,
@@ -43,7 +79,11 @@ public class JobHandleSoaPool
         };
     }
 
-    public void ReleaseHandle(JobHandle handle)
+    /// <summary>
+    /// Returns a new or pooled <see cref="JobHandle"/> to the pool.
+    /// </summary>
+    /// <param name="handle">The <see cref="JobHandle"/>.</param>
+    public void ReturnHandle(JobHandle handle)
     {
         _freeIds.ReturnHandle(handle);
     }
@@ -56,34 +96,82 @@ public class JobHandleSoaPool
 /// </summary>
 public struct JobHandle
 {
-    public static JobHandleSoaPool Pool = new();
+    /// <summary>
+    /// The <see cref="JobHandleSoaPool"/> for pooling and to reduce allocations.
+    /// </summary>
+    internal static readonly JobHandleSoaPool Pool = new();
+
+    /// <summary>
+    /// The index of this <see cref="JobHandle"/>, pointing towards its data inside the <see cref="Pool"/>.
+    /// </summary>
     public ushort Index;
-    public ref IJob Job => ref Pool.Jobs[Index];
 
-    public ref ushort Parent => ref Pool.Parent[Index];
+    /// <summary>
+    /// Creates a new <see cref="JobHandle"/>.
+    /// </summary>
+    /// <param name="id">Its id.</param>
+    public JobHandle(ushort id)
+    {
+        Index = id;
+    }
 
-    //In case we depend on multiple jobs
-    public ref List<JobHandle>? Dependencies => ref Pool.Dependencies[Index];
-    public ref int UnfinishedJobs => ref Pool.UnfinishedJobs[Index];
+    /// <summary>
+    /// The associated <see cref="IJob"/> of this instance.
+    /// </summary>
+    public ref IJob Job
+    {
+        get => ref Pool.Jobs[Index];
+    }
 
+    /// <summary>
+    /// The parent of this instance.
+    /// </summary>
+    public ref ushort Parent
+    {
+        get => ref Pool.Parent[Index];
+    }
+
+    /// <summary>
+    /// The dependencies of this instance.
+    /// </summary>
+    public ref List<JobHandle>? Dependencies
+    {
+        get => ref Pool.Dependencies[Index];
+    }
+
+    /// <summary>
+    /// Unfinished child jobs, in case that this one is a parent.
+    /// </summary>
+    public ref int UnfinishedJobs
+    {
+        get => ref Pool.UnfinishedJobs[Index];
+    }
+
+    /// <summary>
+    /// Sets a <see cref="JobHandle"/> this instance depends on.
+    /// </summary>
+    /// <param name="toDependOn"></param>
     public void SetDependsOn(JobHandle toDependOn)
     {
         Interlocked.Increment(ref toDependOn.UnfinishedJobs);
         Parent = toDependOn.Index;
     }
 
+    /// <summary>
+    /// Returns whether this instance has <see cref="Dependencies"/>.
+    /// </summary>
+    /// <returns></returns>
     public bool HasDependencies()
     {
         return Dependencies is { Count: > 0 };
     }
 
+    /// <summary>
+    /// Returns a list of <see cref="Dependencies"/>.
+    /// </summary>
+    /// <returns></returns>
     public List<JobHandle> GetDependencies()
     {
         return Dependencies ??= [];
-    }
-
-    public JobHandle(ushort id)
-    {
-        Index = id;
     }
 }

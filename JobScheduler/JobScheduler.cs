@@ -61,9 +61,8 @@ public partial class JobScheduler : IDisposable
     /// <returns>The new created <see cref="JobHandle"/>.</returns>
     public JobHandle Schedule(IJob iJob)
     {
-        return JobHandle.Pool.GetNewHandle(iJob);
+        return JobHandle.Pool.RentJobHandle(iJob);
     }
-
 
     /// <summary>
     /// This is similar to wait but doesn't require a job handle, and allow limiting execution to a certain amount of jobs.
@@ -100,7 +99,7 @@ public partial class JobScheduler : IDisposable
     public JobHandle Schedule(IJob iJob, JobHandle parent)
     {
         Interlocked.Increment(ref parent.UnfinishedJobs);
-        var job = JobHandle.Pool.GetNewHandle(iJob);
+        var job = JobHandle.Pool.RentJobHandle(iJob);
         job.Parent = parent.Index;
         return job;
     }
@@ -184,8 +183,12 @@ public partial class JobScheduler : IDisposable
             }
         }
 
-        if(job.UnfinishedJobs <0) throw new InvalidOperationException("Unfinished jobs cannot be negative");
-        JobHandle.Pool.ReleaseHandle(job);
+        if(job.UnfinishedJobs <0)
+        {
+            throw new InvalidOperationException("Unfinished jobs cannot be negative");
+        }
+
+        JobHandle.Pool.ReturnHandle(job);
     }
 
     /// <summary>

@@ -36,7 +36,7 @@ internal class Worker
     }
 
     /// <summary>
-    /// Its <see cref="SingleProducerSingleConsumerQueue{T}"/> with <see cref="JobHandle"/>s which are transferred into the <see cref="Queue"/>.
+    /// Its <see cref="UnorderedThreadSafeQueue{T}"/> with <see cref="JobHandle"/>s which are transferred into the <see cref="Queue"/>.
     /// </summary>
     public UnorderedThreadSafeQueue<JobHandle> IncomingQueue
     {
