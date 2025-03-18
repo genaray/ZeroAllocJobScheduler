@@ -61,7 +61,7 @@ public class JobHandleSoaPool
             throw new("Job cannot be null");
         }
 
-        _freeIds.GetHandle(out var index);
+        _freeIds.RentHandle(out var index);
 
         if (index == null)
         {

@@ -122,6 +122,10 @@ public class ParallelJobProducer<T> : IJob where T : struct, IParallelJobProduce
         }
     }
 
+    /// <summary>
+    /// Calculates the amount of children this job will split into.
+    /// </summary>
+    /// <returns>The amount.</returns>
     private int CalculateChildrenToSplitInto()
     {
         const int ChildrenToSplitInto = 128; //This should be equal to the number of threads(or that times 2/3?) but for now it's just a constant
@@ -129,6 +133,10 @@ public class ParallelJobProducer<T> : IJob where T : struct, IParallelJobProduce
         return range < ChildrenToSplitInto ? range : ChildrenToSplitInto;
     }
 
+    /// <summary>
+    /// Checks and splits this instance into more instances.
+    /// </summary>
+    /// <returns>If a split occured</returns>
     private bool CheckAndSplit()
     {
         if (!_shouldSplitWhenAvailable || CalculateChildrenToSplitInto() <= 1)
@@ -141,6 +149,10 @@ public class ParallelJobProducer<T> : IJob where T : struct, IParallelJobProduce
         return true;
     }
 
+    /// <summary>
+    /// Splits this instance into sub instances.
+    /// </summary>
+    /// <exception cref="Exception">An exception occuring when an invalid range was passed.</exception>
     private void Split()
     {
         var childrenToSplitInto = CalculateChildrenToSplitInto();
